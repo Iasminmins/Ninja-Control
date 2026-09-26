@@ -10,10 +10,12 @@ const firmLogoAssets: Record<string, string> = {
   myfundedfutures: '/firm-logos/myfundedfutures.svg',
   'my funded futures': '/firm-logos/myfundedfutures.svg',
   'the premier': '/firm-logos/myfundedfutures.svg',
-  'funded futures family': '/firm-logos/fundedfuturesfamily.svg',
-  fundedfuturesfamily: '/firm-logos/fundedfuturesfamily.svg',
-  fff: '/firm-logos/fundedfuturesfamily.svg',
+  'funded futures family': '/firm-logos/fundedfuturesfamily-mark.png',
+  fundedfuturesfamily: '/firm-logos/fundedfuturesfamily-mark.png',
+  fff: '/firm-logos/fundedfuturesfamily-mark.png',
 }
+
+const squareFirmLogos = new Set(['apex', 'funded futures family', 'fundedfuturesfamily', 'fff'])
 
 function normalizeFirm(firm: string) {
   return firm.trim().toLocaleLowerCase('en-US').replace(/\s+/g, ' ')
@@ -25,7 +27,6 @@ export function firmLogoSource(firm: string, customLogoUrl?: string) {
   const normalized = normalizeFirm(firm)
   const logo = firmLogoAssets[normalized]
   if (logo) return logo
-  if (normalized === 'futures prop' || normalized === 'futures prop firm') return 'https://futures-prop-firm.com/favicon.ico'
   return null
 }
 
@@ -42,7 +43,9 @@ export function FirmLogo({ firm, customLogoUrl, size = 40 }: {
   const src = firmLogoSource(firm, customLogoUrl)
   const initials = firm.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '?'
 
-  return <span className="grid shrink-0 place-items-center overflow-hidden rounded-lg border border-white/10 bg-white/[0.04] text-[10px] font-bold text-zinc-300" style={{ width: size * 2.5, height: size }} aria-label={`Logo ${firm}`}>
+  const width = size * (squareFirmLogos.has(normalizeFirm(firm)) ? 1 : 2.5)
+
+  return <span className="grid shrink-0 place-items-center overflow-hidden rounded-lg border border-white/10 bg-white/[0.04] text-[10px] font-bold text-zinc-300" style={{ width, height: size }} aria-label={`Logo ${firm}`}>
     {src && failedSource !== src ? <img src={src} alt={`Logo ${firm}`} width={size} height={size} className="h-full w-full object-contain p-1" onError={() => setFailedSource(src)} /> : initials}
   </span>
 }

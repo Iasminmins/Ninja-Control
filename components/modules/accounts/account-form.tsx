@@ -5,6 +5,17 @@ import type { AccountKind, DemoAccount } from '@/lib/demo/types'
 import { PrimaryButton, SecondaryButton } from '@/components/workspace/primitives'
 import { FirmLogo, hasFirmLogo, supportedFirms } from './firm-logo'
 
+function suggestedAccountName(firm: string, existingNames: string[]) {
+  const label = firm.trim() || 'Conta'
+  let sequence = 1
+  let candidate = `${label} #${String(sequence).padStart(2, '0')}`
+  while (existingNames.some((name) => name.trim().toLocaleLowerCase('pt-BR') === candidate.toLocaleLowerCase('pt-BR'))) {
+    sequence += 1
+    candidate = `${label} #${String(sequence).padStart(2, '0')}`
+  }
+  return candidate
+}
+
 export function AccountForm({ initial, existingNames, onSave, onCancel }: {
   initial: DemoAccount | null
   existingNames: string[]
@@ -24,8 +35,8 @@ export function AccountForm({ initial, existingNames, onSave, onCancel }: {
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const normalizedName = name.trim()
-    if (existingNames.some((value) => value.toLocaleLowerCase('pt-BR') === normalizedName.toLocaleLowerCase('pt-BR') && value !== initial?.name)) {
+    const normalizedName = name.trim() || suggestedAccountName(firm, existingNames)
+    if (existingNames.some((value) => value.trim().toLocaleLowerCase('pt-BR') === normalizedName.toLocaleLowerCase('pt-BR') && value !== initial?.name)) {
       setError('Já existe uma conta com esse nome.')
       return
     }
@@ -63,8 +74,8 @@ export function AccountForm({ initial, existingNames, onSave, onCancel }: {
 
   const inputClass = 'mt-1 h-10 w-full rounded-lg border border-white/10 bg-[#0b0d0f] px-3 text-sm text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b9f227]'
   return <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2" noValidate>
-    <label className="text-xs text-zinc-400">Nome da conta<input className={inputClass} value={name} onChange={(event) => setName(event.target.value)} required maxLength={48} autoFocus /></label>
-    <label className="text-xs text-zinc-400">Empresa de avaliação<input className={inputClass} list="account-firms" value={firm} onChange={(event) => { setFirm(event.target.value); setFirmLogoUrl('') }} required maxLength={48} /><datalist id="account-firms">{supportedFirms.map((value) => <option value={value} key={value} />)}</datalist></label>
+    <label className="text-xs text-zinc-400">Nome da conta<input className={inputClass} value={name} onChange={(event) => setName(event.target.value)} placeholder={firm ? suggestedAccountName(firm, existingNames) : 'Preenchido ao escolher a empresa'} required maxLength={48} autoFocus /></label>
+    <label className="text-xs text-zinc-400">Empresa de avaliação<input className={inputClass} list="account-firms" value={firm} onChange={(event) => { const nextFirm = event.target.value; setFirm(nextFirm); setFirmLogoUrl(''); if (!name.trim() && nextFirm.trim()) setName(suggestedAccountName(nextFirm, existingNames)) }} required maxLength={48} /><datalist id="account-firms">{supportedFirms.map((value) => <option value={value} key={value} />)}</datalist></label>
     <label className="text-xs text-zinc-400">Link da logo oficial (HTTPS, se necessário)<input className={inputClass} type="url" value={firmLogoUrl} onChange={(event) => setFirmLogoUrl(event.target.value)} placeholder="Preenchido automaticamente para empresas conhecidas" /></label>
     <div className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 text-xs text-zinc-400"><FirmLogo firm={firm} customLogoUrl={firmLogoUrl} />{firm.trim() ? `Logo da ${firm}` : 'A logo da empresa aparecerá aqui'}</div>
     <label className="text-xs text-zinc-400">Tipo<select className={inputClass} value={kind} onChange={(event) => { const next = event.target.value as AccountKind; setKind(next); setStage(next === 'funded' ? 'Financiada' : next === 'combine' ? 'Combine' : 'Avaliação') }}><option value="evaluation">Avaliação</option><option value="funded">Financiada</option><option value="combine">Combine</option></select></label>
