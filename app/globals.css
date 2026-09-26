@@ -1,0 +1,71 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  color-scheme: dark;
+  --background: oklch(0.13 0.01 260);
+  --foreground: oklch(0.96 0.01 260);
+  --card: oklch(0.16 0.012 260);
+  --card-foreground: oklch(0.96 0.01 260);
+  --popover: oklch(0.16 0.012 260);
+  --popover-foreground: oklch(0.96 0.01 260);
+  --primary: oklch(0.92 0.19 115);
+  --primary-foreground: oklch(0.15 0.02 115);
+  --secondary: oklch(0.21 0.015 260);
+  --secondary-foreground: oklch(0.8 0.01 260);
+  --muted: oklch(0.21 0.015 260);
+  --muted-foreground: oklch(0.58 0.015 260);
+  --accent: oklch(0.21 0.015 260);
+  --accent-foreground: oklch(0.96 0.01 260);
+  --destructive: oklch(0.62 0.22 20);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.92 0.19 115);
+  --radius: 0.55rem;
+  --sidebar: oklch(0.15 0.012 260);
+  --sidebar-foreground: oklch(0.96 0.01 260);
+  --sidebar-primary: oklch(0.92 0.19 115);
+  --sidebar-primary-foreground: oklch(0.15 0.02 115);
+  --sidebar-accent: oklch(0.21 0.015 260);
+  --sidebar-accent-foreground: oklch(0.96 0.01 260);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.92 0.19 115);
+}
+
+@theme inline {
+  --color-background: var(--background); --color-foreground: var(--foreground); --color-card: var(--card); --color-card-foreground: var(--card-foreground); --color-popover: var(--popover); --color-popover-foreground: var(--popover-foreground); --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground); --color-secondary: var(--secondary); --color-secondary-foreground: var(--secondary-foreground); --color-muted: var(--muted); --color-muted-foreground: var(--muted-foreground); --color-accent: var(--accent); --color-accent-foreground: var(--accent-foreground); --color-destructive: var(--destructive); --color-border: var(--border); --color-input: var(--input); --color-ring: var(--ring); --radius-sm: calc(var(--radius) * .7); --radius-md: var(--radius); --radius-lg: calc(var(--radius) * 1.3); --radius-xl: calc(var(--radius) * 1.7);
+}
+
+@layer base { * { @apply border-border outline-ring/50; } body { @apply bg-background text-foreground; font-family: Arial, Helvetica, sans-serif; } button { cursor: pointer; } }
+
+@layer components {
+  .panel { @apply rounded-xl border border-white/[0.07] bg-[#101214]; }
+  .metric-card { @apply rounded-xl border border-white/[0.07] bg-[#101214] p-5 transition-colors hover:border-white/[0.13] hover:bg-[#121416]; }
+  .metric-icon { @apply flex size-8 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.035] text-zinc-400; }
+  .metric-icon svg { @apply size-4; }
+  .metric-label { @apply text-[10px] font-medium uppercase tracking-[0.13em] text-zinc-500; }
+  .metric-value { @apply mt-1 text-xl font-semibold tracking-[-0.025em] text-white; }
+  .section-title { @apply text-sm font-semibold tracking-tight text-white; }
+  .eyebrow { @apply text-[9px] font-semibold tracking-[0.22em] text-[#b9f227]; }
+  .eyebrow-dot { @apply size-1.5 rounded-full bg-[#b9f227] shadow-[0_0_10px_#b9f227]; }
+  .nav-item { @apply flex h-9 w-full items-center gap-3 rounded-lg px-3 text-left text-xs text-zinc-500 transition-colors hover:bg-white/[0.045] hover:text-zinc-200; }
+  .nav-item-active { @apply bg-[#b9f227]/[0.09] text-[#b9f227] hover:bg-[#b9f227]/[0.12] hover:text-[#b9f227]; }
+  .icon-button { @apply relative flex size-8 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200; }
+  .secondary-button { @apply flex h-8 items-center gap-2 rounded-lg border border-white/[0.1] bg-white/[0.025] px-3 text-[11px] font-medium text-zinc-400 transition-colors hover:border-white/[0.18] hover:bg-white/[0.06] hover:text-white; }
+  .primary-button { @apply flex h-8 items-center gap-2 rounded-lg bg-[#b9f227] px-3 text-[11px] font-semibold text-[#111508] transition-colors hover:bg-[#cbfa4a]; }
+  .status-dot { @apply size-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]; }
+  .status-badge { @apply flex items-center gap-1.5 rounded-full px-2 py-1 text-[9px] font-semibold tracking-wider; }
+  .status-safe { @apply bg-[#b9f227]/[0.09] text-[#b9f227]; }
+  .status-attention { @apply bg-amber-300/[0.09] text-amber-300; }
+  .account-card { @apply rounded-xl border border-white/[0.07] bg-[#101214] p-5 transition-all hover:-translate-y-0.5 hover:border-white/[0.14] hover:bg-[#121416]; }
+  .stat-tile { @apply rounded-lg border border-white/[0.06] bg-white/[0.02] p-3; }
+  .chart-area { @apply relative h-[230px] overflow-hidden rounded-lg border border-white/[0.04] bg-[#0b0d0f]; }
+  .chart-grid { @apply absolute inset-0 opacity-40; background-image: linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px); background-size: 100% 46px, 80px 100%; }
+  .chart-labels { @apply absolute inset-x-3 bottom-3 flex justify-between text-[9px] font-mono text-zinc-700; }
+}
+
+* { scrollbar-width: thin; scrollbar-color: #292d31 transparent; }
+::-webkit-scrollbar { width: 6px; height: 6px; } ::-webkit-scrollbar-thumb { background: #292d31; border-radius: 99px; }

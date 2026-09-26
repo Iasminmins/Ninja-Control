@@ -1,0 +1,20 @@
+'use client'
+
+import { Cable, CircleHelp, LockKeyhole, RefreshCw } from 'lucide-react'
+import { MetricTile, PageFrame, Panel, SectionHeading, StatusPill } from '@/components/workspace/primitives'
+import { useDemoWorkspace } from '@/hooks/use-demo-workspace'
+
+export function IntegrationsScreen() {
+  const { workspace } = useDemoWorkspace()
+  const brokers = workspace.integrations.filter((item) => item.category === 'broker')
+  const firms = workspace.integrations.filter((item) => item.category === 'prop-firm')
+  const status = (value: string) => value === 'connected' ? 'CONECTADA' : value === 'error' ? 'ERRO' : value === 'disconnected' ? 'DESCONECTADA' : 'NÃO CONFIGURADA'
+  function ConnectorList({ title, description, items }: { title: string; description: string; items: typeof workspace.integrations }) {
+    return <Panel className="p-5 sm:p-6"><SectionHeading title={title} description={description} /><div className="grid gap-3 md:grid-cols-2">{items.map((item) => <article key={item.id} className="rounded-xl border border-white/[0.07] bg-white/[0.015] p-4"><div className="flex items-start justify-between gap-3"><div className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-lg border border-white/[0.08] bg-white/[0.025] text-zinc-400"><Cable className="size-4" /></span><div><h3 className="text-sm font-semibold text-zinc-200">{item.name}</h3><p className="mt-1 text-[10px] text-zinc-500">{item.category === 'broker' ? 'Corretora / plataforma' : 'Prop firm'}</p></div></div><StatusPill tone="neutral">{status(item.connectionState)}</StatusPill></div><ul className="mt-4 flex flex-col gap-2">{item.requirements.map((requirement) => <li key={requirement} className="flex gap-2 text-[10px] leading-4 text-zinc-500"><CircleHelp className="mt-0.5 size-3 shrink-0" />{requirement}</li>)}</ul><button disabled title="Conector não configurado nesta versão" className="mt-4 inline-flex min-h-9 w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.015] px-3 text-[10px] text-zinc-600"><RefreshCw className="size-3" /> Conector indisponível</button></article>)}</div></Panel>
+  }
+  return <PageFrame title="Integrações" description="Consulte conectores e requisitos técnicos antes de habilitar fontes externas." eyebrow="FONTES DE DADOS">
+    <section className="mb-5 grid gap-3 sm:grid-cols-3"><MetricTile label="Conectores" value={String(workspace.integrations.length)} icon={Cable} note="Catálogo de integrações planejadas." /><MetricTile label="Configurados" value={String(workspace.integrations.filter((item) => item.connectionState === 'connected').length)} icon={RefreshCw} note="Nenhum conector está ativo." /><MetricTile label="Credenciais" value="Não solicitadas" icon={LockKeyhole} note="Esta versão não armazena segredos." /></section>
+    <Panel className="mb-5 border-amber-300/10 bg-amber-300/[0.02] p-4"><div className="flex items-start gap-3"><LockKeyhole className="mt-0.5 size-4 shrink-0 text-amber-200" /><div><h2 className="text-xs font-semibold text-amber-100">NinjaTrader: próximo passo é registrar o aplicativo</h2><p className="mt-1 text-[10px] leading-4 text-zinc-400">A API oficial permite consultar contas e atividade. Para autenticar com segurança, a NinjaTrader precisa emitir as credenciais do aplicativo e registrar a URL de retorno OAuth. O segredo fica no servidor; sua senha da NinjaTrader não é inserida nesta plataforma. A primeira conexão será somente leitura e deve começar no Demo.</p><a className="mt-3 inline-flex text-[10px] font-medium text-[#b9f227] underline-offset-4 hover:underline" href="https://docs.ninjatrader.com/api/oauth" target="_blank" rel="noreferrer">Ver documentação oficial de OAuth</a></div></div></Panel>
+    <div className="mb-5"><ConnectorList title="Corretoras e plataformas" description="Fontes para atividade, execuções e sincronização de trades." items={brokers} /></div><ConnectorList title="Prop firms" description="Fontes potenciais para contas, etapas e solicitações de saque." items={firms} />
+  </PageFrame>
+}

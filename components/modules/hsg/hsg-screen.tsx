@@ -1,0 +1,21 @@
+'use client'
+
+import Link from 'next/link'
+import { ArrowUpRight, CircleHelp, Sparkles } from 'lucide-react'
+import { EmptyState, MetricTile, PageFrame, Panel, SectionHeading, StatusPill } from '@/components/workspace/primitives'
+import { useDemoWorkspace } from '@/hooks/use-demo-workspace'
+import { selectTrades, strategyNetPnl } from '@/lib/demo/selectors'
+import { formatCurrency, formatDateTime } from '@/lib/format'
+
+export function HsgScreen() {
+  const { workspace } = useDemoWorkspace()
+  const strategies = workspace.strategies.filter((item) => item.name.toLocaleLowerCase('pt-BR').startsWith('hsg'))
+  const trades = strategies.flatMap((strategy) => selectTrades(workspace, { strategyId: strategy.id }).map((trade) => ({ trade, strategy }))).sort((a, b) => b.trade.closedAt.localeCompare(a.trade.closedAt))
+  const pnl = strategies.reduce((sum, strategy) => sum + strategyNetPnl(workspace, strategy.id), 0)
+  return <PageFrame title="HSG" description="Espaço independente para as variantes HSG. Nenhuma regra operacional foi fornecida no projeto." eyebrow="ESTRATÉGIA · CONFIGURAÇÃO PENDENTE" actions={<Link href="/strategies" className="secondary-button min-h-9">Abrir catálogo <ArrowUpRight className="size-3.5" /></Link>}>
+    <section className="mb-5 grid gap-3 sm:grid-cols-3"><MetricTile label="Variantes no catálogo" value={String(strategies.length)} icon={Sparkles} note="HSG A e HSG B são metadados de demonstração." /><MetricTile label="Estado" value="Aguardando definição" icon={CircleHelp} tone="warning" note="Sem sinais, parâmetros ou execução." /><MetricTile label="P&L associado à amostra" value={formatCurrency(pnl)} icon={Sparkles} note="Soma dos trades sintéticos ligados às variantes." /></section>
+    <section className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]"><Panel className="p-5 sm:p-6"><div className="mb-4 flex items-start justify-between gap-3"><SectionHeading title="Variantes HSG" description="Metadados atualmente disponíveis no catálogo." /><StatusPill tone="warning">NÃO CONFIGURADA</StatusPill></div>{strategies.length ? <div className="flex flex-col gap-3">{strategies.map((strategy) => <article key={strategy.id} className="rounded-lg border border-white/[0.06] bg-white/[0.015] p-4"><div className="flex items-center justify-between gap-3"><h3 className="text-sm font-semibold text-white">{strategy.name}</h3><span className="text-[9px] text-zinc-600">Regras pendentes</span></div><p className="mt-2 text-xs leading-5 text-zinc-500">{strategy.description}</p><p className="mt-3 text-[10px] text-zinc-400">Contas: {strategy.accountIds.map((id) => workspace.accounts.find((account) => account.id === id)?.name ?? 'Conta arquivada').join(', ') || 'Não definidas'}</p><p className="mt-1 text-[10px] text-zinc-500">Instrumentos: {strategy.instruments.join(', ') || 'Não definidos'}</p></article>)}</div> : <EmptyState title="Nenhuma variante HSG cadastrada" description="Adicione metadados no catálogo enquanto a lógica funcional não é especificada." />}<div className="mt-4 rounded-lg border border-amber-300/15 bg-amber-300/[0.035] p-3 text-[11px] leading-5 text-zinc-400">Para completar HSG, precisamos das regras e diferenças entre variantes, parâmetros, sessões, riscos e critérios para interpretar sinais.</div></Panel>
+      <Panel className="p-5 sm:p-6"><SectionHeading title="Trades demonstrativos vinculados" description="A associação com HSG não significa que os trades foram gerados por uma regra real." />{trades.length ? <div className="flex flex-col gap-3">{trades.map(({ trade, strategy }) => <article key={trade.id} className="flex flex-col gap-2 rounded-lg border border-white/[0.06] bg-white/[0.015] p-3 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><p className="text-xs font-medium text-zinc-200">{strategy.name} · {trade.instrument}</p><p className="mt-1 text-[10px] text-zinc-500">{formatDateTime(trade.closedAt)} · {workspace.accounts.find((account) => account.id === trade.accountId)?.name ?? 'Conta arquivada'}</p></div><span className={`font-mono text-xs ${trade.netPnl < 0 ? 'text-rose-300' : 'text-zinc-300'}`}>{formatCurrency(trade.netPnl)}</span></article>)}</div> : <EmptyState title="Sem trades associados" description="Não há registros de demonstração vinculados às variantes HSG." />}</Panel>
+    </section>
+  </PageFrame>
+}
