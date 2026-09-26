@@ -10,6 +10,7 @@ export interface DemoAccount {
   id: RecordId
   name: string
   firm: string
+  firmLogoUrl?: string
   kind: AccountKind
   stage: string
   startingCapital: number

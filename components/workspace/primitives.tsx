@@ -10,9 +10,10 @@ export function PageFrame({ eyebrow = 'AMBIENTE DE DEMONSTRAÇÃO', title, descr
   actions?: ReactNode
   children: ReactNode
 }) {
-  return <main className="mx-auto max-w-[1600px] px-5 py-7 sm:px-8 sm:py-9">
+  const module = title.toLocaleLowerCase('pt-BR').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  return <main data-module={module} className="mx-auto max-w-[1500px] px-5 py-7 sm:px-8 sm:py-9 xl:px-10">
     <div className="mb-7 flex flex-col justify-between gap-5 md:flex-row md:items-end">
-      <div><div className="mb-3 flex items-center gap-2"><span className="eyebrow-dot" /><span className="eyebrow">{eyebrow}</span></div><h2 className="text-2xl font-semibold tracking-[-0.03em] text-white sm:text-3xl">{title}</h2><p className="mt-2 max-w-3xl text-sm text-zinc-500">{description}</p></div>
+      <div><div className="mb-3 flex items-center gap-2"><span className="eyebrow-dot" /><span className="eyebrow">{eyebrow}</span></div><h2 className="text-[26px] font-semibold tracking-[-0.04em] text-white sm:text-[32px]">{title}</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">{description}</p></div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
     <DemoNotice />
@@ -22,9 +23,9 @@ export function PageFrame({ eyebrow = 'AMBIENTE DE DEMONSTRAÇÃO', title, descr
 
 export function DemoNotice() {
   const { storageNotice } = useDemoWorkspace()
-  return <div className="mb-6 flex items-start gap-3 rounded-xl border border-amber-300/15 bg-amber-300/[0.035] px-4 py-3" role="status">
+  return <div className="mb-7 flex items-start gap-3 rounded-xl border border-amber-200/[0.14] bg-[#19170f] px-4 py-3.5" role="status">
     {storageNotice?.startsWith('Os dados') ? <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-300" /> : <Database className="mt-0.5 size-4 shrink-0 text-amber-300" />}
-    <p className="text-[11px] leading-5 text-zinc-400"><span className="font-semibold text-amber-200">Demonstração local.</span> Valores sintéticos; nenhuma conta está conectada e nenhuma proteção ou ordem real é executada.{storageNotice && <span className="mt-1 block text-amber-200">{storageNotice}</span>}</p>
+    <p className="text-xs leading-5 text-zinc-300"><span className="font-semibold text-amber-200">Ambiente de demonstração</span><span className="mx-2 text-amber-200/40">·</span>Dados sintéticos; nenhuma conta está conectada e nenhuma proteção ou ordem real é executada.{storageNotice && <span className="mt-1 block text-amber-200">{storageNotice}</span>}</p>
   </div>
 }
 

@@ -16,7 +16,7 @@ function isActive(pathname: string, href: string) {
 function Brand({ compact = false }: { compact?: boolean }) {
   return <Link href="/dashboard" className="flex min-w-0 items-center" aria-label="Ninja Control — abrir dashboard">
     <span className="brand-mark"><Command className="size-4" /></span>
-    {!compact && <span className="ml-3 min-w-0"><span className="block whitespace-nowrap text-[13px] font-semibold tracking-[0.2em] text-white">NINJA<span className="text-[#b9f227]">CONTROL</span></span><span className="mt-0.5 block whitespace-nowrap text-[9px] tracking-[0.18em] text-zinc-600">TRADING INTELLIGENCE</span></span>}
+    {!compact && <span className="ml-3 min-w-0"><span className="block whitespace-nowrap text-[13px] font-semibold tracking-[0.17em] text-white">NINJA<span className="text-[#c5ef58]">CONTROL</span></span><span className="mt-1 block whitespace-nowrap text-[9px] tracking-[0.13em] text-zinc-500">TRADING INTELLIGENCE</span></span>}
   </Link>
 }
 
@@ -25,7 +25,7 @@ function NavigationLinks({ pathname, onNavigate, collapsed = false }: { pathname
   const unread = workspace.alertEvents.filter((event) => !event.readAt).length
   return <nav aria-label="Navegação principal" className="flex-1 overflow-y-auto px-3 py-6">
     {navigationSections.map((section) => <div className="mb-7" key={section.label}>
-      {!collapsed && <p className="mb-3 px-3 text-[9px] font-semibold tracking-[0.22em] text-zinc-600">{section.label}</p>}
+      {!collapsed && <p className="mb-2 px-3 text-[10px] font-semibold tracking-[0.12em] text-zinc-500">{section.label}</p>}
       {section.items.map(({ label, href, icon: Icon }) => <Link key={href} href={href} onClick={onNavigate} aria-current={isActive(pathname, href) ? 'page' : undefined} title={collapsed ? label : undefined} className={`nav-item ${isActive(pathname, href) ? 'nav-item-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
         <Icon className="size-[17px] shrink-0" />
         {!collapsed && <span>{label}</span>}
@@ -81,10 +81,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </aside>
 
     <div className={`transition-[padding] duration-200 ${collapsed ? 'lg:pl-[76px]' : 'lg:pl-[242px]'}`}>
-      <header className="sticky top-0 z-20 flex h-[72px] items-center justify-between border-b border-white/[0.07] bg-[#090a0c]/90 px-5 backdrop-blur-xl sm:px-8">
+      <header className="sticky top-0 z-20 flex h-[68px] items-center justify-between border-b border-white/[0.075] bg-[#0c0e10]/95 px-5 sm:px-8">
         <div className="flex min-w-0 items-center gap-3">
           <button className="icon-button lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Abrir navegação"><Menu className="size-5" /></button>
-          <div className="min-w-0"><div className="flex items-center gap-2 text-xs text-zinc-500"><span>Workspace</span><ChevronRight className="size-3" /><span className="truncate text-zinc-300">{item.label}</span></div><h1 className="mt-1 truncate text-sm font-semibold tracking-tight">{item.label}</h1></div>
+          <div className="min-w-0"><div className="flex items-center gap-2 text-xs text-zinc-500"><span>Workspace</span><ChevronRight className="size-3" /><span className="truncate text-zinc-300">{item.label}</span></div><h1 className="mt-0.5 truncate text-[13px] font-semibold tracking-tight">{item.label}</h1></div>
         </div>
         <div className="flex shrink-0 items-center gap-2 sm:gap-4">
           <span className="hidden items-center gap-2 rounded-full border border-amber-300/15 bg-amber-300/[0.04] px-3 py-1.5 sm:flex"><span className="size-1.5 rounded-full bg-amber-300" /><span className="text-[10px] font-medium tracking-wide text-amber-200">MODO DEMONSTRAÇÃO</span></span>
