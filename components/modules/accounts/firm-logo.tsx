@@ -10,12 +10,12 @@ const firmLogoAssets: Record<string, string> = {
   myfundedfutures: '/firm-logos/myfundedfutures.svg',
   'my funded futures': '/firm-logos/myfundedfutures.svg',
   'the premier': '/firm-logos/myfundedfutures.svg',
-  'funded futures family': '/firm-logos/fundedfuturesfamily-mark.png',
+  'funded futures family': '/firm-logos/fundedfuturesfamily.svg',
   fundedfuturesfamily: '/firm-logos/fundedfuturesfamily-mark.png',
   fff: '/firm-logos/fundedfuturesfamily-mark.png',
 }
 
-const squareFirmLogos = new Set(['apex', 'funded futures family', 'fundedfuturesfamily', 'fff'])
+const squareFirmLogos = new Set(['apex'])
 
 function normalizeFirm(firm: string) {
   return firm.trim().toLocaleLowerCase('en-US').replace(/\s+/g, ' ')

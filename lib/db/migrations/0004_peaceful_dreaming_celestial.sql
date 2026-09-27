@@ -1,0 +1,1 @@
+ALTER TABLE "trade_contexts" ADD COLUMN "quantity" integer;

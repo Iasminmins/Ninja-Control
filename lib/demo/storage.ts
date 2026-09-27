@@ -11,20 +11,38 @@ function browserStorage(): StorageLike | undefined {
   }
 }
 
-function isDemoWorkspace(value: unknown): value is DemoWorkspace {
-  if (!value || typeof value !== 'object') return false
-  const candidate = value as Partial<DemoWorkspace>
-  return candidate.schemaVersion === 1
-    && Array.isArray(candidate.accounts)
-    && Array.isArray(candidate.trades)
-    && Array.isArray(candidate.strategies)
-    && Array.isArray(candidate.payouts)
-    && Array.isArray(candidate.operationEvents)
-    && Array.isArray(candidate.riskRules)
-    && Array.isArray(candidate.alertRules)
-    && Array.isArray(candidate.alertEvents)
-    && Array.isArray(candidate.journalEntries)
-    && Array.isArray(candidate.integrations)
+function hasDemoCollections(value: Record<string, unknown>): boolean {
+  return Array.isArray(value.accounts)
+    && Array.isArray(value.trades)
+    && Array.isArray(value.strategies)
+    && Array.isArray(value.payouts)
+    && Array.isArray(value.operationEvents)
+    && Array.isArray(value.riskRules)
+    && Array.isArray(value.alertRules)
+    && Array.isArray(value.alertEvents)
+    && Array.isArray(value.journalEntries)
+    && Array.isArray(value.integrations)
+}
+
+function migrateDemoWorkspace(value: unknown): DemoWorkspace | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = value as Record<string, unknown>
+  if (!hasDemoCollections(candidate)) return null
+
+  if (candidate.schemaVersion === 1) {
+    return {
+      ...candidate,
+      schemaVersion: 2,
+      mode: 'demo',
+      updatedAt: new Date().toISOString(),
+    } as unknown as DemoWorkspace
+  }
+
+  if (candidate.schemaVersion === 2 && candidate.mode === 'demo' && typeof candidate.updatedAt === 'string') {
+    return candidate as unknown as DemoWorkspace
+  }
+
+  return null
 }
 
 export function subscribeToDemoWorkspace(listener: () => void): () => void {
@@ -52,7 +70,13 @@ export function readDemoWorkspace(storage?: StorageLike): DemoWorkspaceLoadResul
     const raw = source.getItem(DEMO_STORAGE_KEY)
     if (!raw) return { workspace: createInitialDemoWorkspace(), recovered: false, storageAvailable: true }
     const parsed: unknown = JSON.parse(raw)
-    if (isDemoWorkspace(parsed)) return { workspace: parsed, recovered: false, storageAvailable: true }
+    const migrated = migrateDemoWorkspace(parsed)
+    if (migrated) {
+      if (migrated.schemaVersion !== (parsed as Record<string, unknown>).schemaVersion) {
+        saveDemoWorkspace(migrated, source)
+      }
+      return { workspace: migrated, recovered: false, storageAvailable: true }
+    }
     return { workspace: createInitialDemoWorkspace(), recovered: true, storageAvailable: true }
   } catch {
     return { workspace: createInitialDemoWorkspace(), recovered: true, storageAvailable: true }
@@ -87,7 +111,7 @@ export function resetDemoWorkspace(storage?: StorageLike): DemoWorkspace {
 }
 
 export function updateDemoWorkspace(updater: (current: DemoWorkspace) => DemoWorkspace): DemoWorkspace {
-  const next = updater(loadDemoWorkspace())
+  const next = { ...updater(loadDemoWorkspace()), updatedAt: new Date().toISOString() }
   saveDemoWorkspace(next)
   return next
 }

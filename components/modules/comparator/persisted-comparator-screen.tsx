@@ -1,0 +1,23 @@
+'use client'
+
+import { ArrowLeftRight, CircleDollarSign, Target, TrendingUp, Activity } from 'lucide-react'
+import { EmptyState, MetricTile, PageFrame, Panel, SectionHeading } from '@/components/workspace/primitives'
+import type { ComparatorData } from '@/lib/comparator/server'
+import { formatCurrency } from '@/lib/format'
+
+const selectClass = 'mt-1 h-10 w-full rounded-lg border border-white/10 bg-[#0b0d0f] px-3 text-xs text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b9f227]'
+const money = (cents: number | null) => cents === null ? '—' : formatCurrency(cents / 100)
+
+export function PersistedComparatorScreen({ data }: { data: ComparatorData }) {
+  const name = data.type === 'account' ? 'contas' : 'estratégias'
+  return <PageFrame title="Comparador" description="Compare duas contas ou estratégias com trades fechados do seu workspace." eyebrow="COMPARAÇÃO DO WORKSPACE" showDemoNotice={false}>
+    <Panel className="mb-5 p-5 sm:p-6"><SectionHeading title="Critérios da comparação" description="O mesmo período e as mesmas métricas são aplicados aos dois itens." />
+      <form method="get" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><label className="text-[10px] text-zinc-500">Comparar<select name="type" className={selectClass} defaultValue={data.type}><option value="account">Contas</option><option value="strategy">Estratégias</option></select></label><label className="text-[10px] text-zinc-500">Item A<select name="a" className={selectClass} defaultValue={data.first?.entity.id ?? ''}>{data.choices.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="text-[10px] text-zinc-500">Item B<select name="b" className={selectClass} defaultValue={data.second?.entity.id ?? ''}>{data.choices.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="text-[10px] text-zinc-500">Período<select name="days" className={selectClass} defaultValue={String(data.days)}><option value="7">7 dias</option><option value="30">30 dias</option><option value="90">90 dias</option><option value="365">365 dias</option><option value="0">Todo o histórico</option></select></label><button className="secondary-button min-h-10 sm:col-span-2 lg:col-span-4" type="submit">Atualizar comparação</button></form>
+    </Panel>
+    {data.choices.length < 2 || !data.first || !data.second ? <EmptyState title={`Ainda não há duas ${name}`} description="Cadastre as contas ou estratégias no workspace para habilitar a comparação." /> : <>
+      <div className="mb-4 flex items-center gap-2 text-[10px] text-zinc-500"><ArrowLeftRight className="size-3.5" />Comparação baseada em trades com P&amp;L recebido; ausência de amostra aparece como zero trades.</div>
+      <section className="grid gap-4 xl:grid-cols-2">{[data.first, data.second].map((item, index) => <Panel key={`${index}-${item.entity.id}`} className="p-5 sm:p-6"><SectionHeading title={item.entity.name} description={`${item.metrics.sampleSize} trades fechados no período`} /><div className="grid gap-3 sm:grid-cols-2"><MetricTile label="P&L líquido" value={formatCurrency(item.metrics.netCents / 100)} icon={CircleDollarSign} tone={item.metrics.netCents < 0 ? 'negative' : 'positive'} /><MetricTile label="Amostra" value={String(item.metrics.sampleSize)} icon={Activity} note={`${item.metrics.wins} ganhos · ${item.metrics.losses} perdas`} /><MetricTile label="Win rate" value={item.metrics.winRate === null ? '—' : `${item.metrics.winRate.toFixed(1).replace('.', ',')}%`} icon={Target} /><MetricTile label="Profit factor" value={item.metrics.profitFactor === null ? '—' : item.metrics.profitFactor.toFixed(2).replace('.', ',')} icon={TrendingUp} note="Sem perda bruta registrada quando indefinido" /><div className="stat-tile sm:col-span-2"><p className="metric-label">Expectativa por trade</p><p className="mt-2 text-sm font-semibold text-white">{money(item.metrics.expectancyCents)}</p></div></div></Panel>)}</section>
+      <p className="mt-4 text-[10px] leading-5 text-zinc-600">Drawdown por estratégia e comparações de regras de 50K/150K ainda exigem associação das regras e snapshots por conta. Esta tela não estima elegibilidade nem probabilidade.</p>
+    </>}
+  </PageFrame>
+}

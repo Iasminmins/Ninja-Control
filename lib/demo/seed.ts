@@ -1,6 +1,6 @@
 import type { DemoWorkspace } from './types'
 
-const STORAGE_VERSION = 1
+const STORAGE_VERSION = 2
 
 function dateInSaoPaulo(daysAgo: number, time = '10:00:00'): string {
   const today = new Intl.DateTimeFormat('en-CA', {
@@ -45,6 +45,8 @@ export function createInitialDemoWorkspace(): DemoWorkspace {
 
   return {
     schemaVersion: STORAGE_VERSION,
+    mode: 'demo',
+    updatedAt: new Date().toISOString(),
     asOfDate: today,
     accounts,
     trades,

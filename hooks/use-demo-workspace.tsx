@@ -35,7 +35,7 @@ export function DemoWorkspaceProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const updateWorkspace = useCallback((updater: (current: DemoWorkspace) => DemoWorkspace) => {
-    const next = updater(workspaceRef.current)
+    const next = { ...updater(workspaceRef.current), updatedAt: new Date().toISOString() }
     workspaceRef.current = next
     setWorkspace(next)
     setStorageNotice(saveDemoWorkspace(next) ? null : 'Não foi possível salvar neste navegador. As alterações existem apenas nesta sessão.')

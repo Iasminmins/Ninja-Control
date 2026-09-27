@@ -2,6 +2,7 @@ export type RecordId = string
 
 export type AccountKind = 'evaluation' | 'funded' | 'combine'
 export type AccountLifecycle = 'active' | 'archived'
+export type PropAccountStatus = 'active' | 'paused' | 'archived' | 'breached'
 export type DemoConnectionState = 'not-configured' | 'disconnected' | 'error' | 'connected'
 export type StrategyStatus = 'configuration-pending' | 'active' | 'paused' | 'archived'
 export type AlertCondition = 'daily-loss-percent' | 'drawdown-buffer-percent' | 'sync-error'
@@ -14,10 +15,16 @@ export interface DemoAccount {
   kind: AccountKind
   stage: string
   startingCapital: number
+  profitTarget?: number
+  consistencyPercent?: number
+  minimumTradingDays?: number
+  maximumContracts?: number
+  additionalRules?: string
   dailyLossLimit: number
   trailingDrawdownLimit: number
   drawdownBufferPercent: number
   lifecycle: AccountLifecycle
+  accountStatus?: PropAccountStatus
   connectionState: DemoConnectionState
   createdAt: string
   lastSyncedAt: string | null
@@ -126,7 +133,9 @@ export interface DemoIntegration {
 }
 
 export interface DemoWorkspace {
-  schemaVersion: 1
+  schemaVersion: 2
+  mode: 'demo'
+  updatedAt: string
   asOfDate: string
   accounts: DemoAccount[]
   trades: DemoTrade[]

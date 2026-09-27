@@ -3,8 +3,9 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useMemo, useState } from 'react'
-import { Bell, ChevronRight, Command, Menu, PanelLeftClose, PanelLeftOpen, Search, UserRound, X } from 'lucide-react'
+import { Bell, ChevronRight, Command, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Search, UserRound, X } from 'lucide-react'
 import { useDemoWorkspace } from '@/hooks/use-demo-workspace'
+import { authClient } from '@/lib/auth/client'
 import { accountBalance } from '@/lib/demo/selectors'
 import { formatCurrency } from '@/lib/format'
 import { navigationItemForPath, navigationSections } from './navigation'
@@ -12,6 +13,9 @@ import { navigationItemForPath, navigationSections } from './navigation'
 function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
+
+const neonWorkspaceRoutes = ['/dashboard', '/operations', '/accounts', '/analytics', '/performance', '/risk-command', '/trading-journal', '/master-slave', '/pattern-lab', '/prop-firms', '/payouts', '/integrations', '/audit', '/hunter', '/hsg', '/hsd', '/hunter-versions', '/experiments', '/alerts', '/reports', '/strategies', '/comparator']
+const isNeonWorkspaceRoute = (pathname: string) => neonWorkspaceRoutes.some((route) => pathname === route || pathname.startsWith(`${route}/`))
 
 function Brand({ compact = false }: { compact?: boolean }) {
   return <Link href="/dashboard" className="flex min-w-0 items-center" aria-label="Ninja Control — abrir dashboard">
@@ -23,13 +27,14 @@ function Brand({ compact = false }: { compact?: boolean }) {
 function NavigationLinks({ pathname, onNavigate, collapsed = false }: { pathname: string; onNavigate?: () => void; collapsed?: boolean }) {
   const { workspace } = useDemoWorkspace()
   const unread = workspace.alertEvents.filter((event) => !event.readAt).length
+  const showDemoUnread = !isNeonWorkspaceRoute(pathname)
   return <nav aria-label="Navegação principal" className="flex-1 overflow-y-auto px-3 py-6">
     {navigationSections.map((section) => <div className="mb-7" key={section.label}>
       {!collapsed && <p className="mb-2 px-3 text-[10px] font-semibold tracking-[0.12em] text-zinc-500">{section.label}</p>}
       {section.items.map(({ label, href, icon: Icon }) => <Link key={href} href={href} onClick={onNavigate} aria-current={isActive(pathname, href) ? 'page' : undefined} title={collapsed ? label : undefined} className={`nav-item ${isActive(pathname, href) ? 'nav-item-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
         <Icon className="size-[17px] shrink-0" />
         {!collapsed && <span>{label}</span>}
-        {!collapsed && href === '/alerts' && unread > 0 && <span className="ml-auto flex min-w-4 items-center justify-center rounded-full bg-[#b9f227] px-1 text-[9px] font-bold text-black">{unread}</span>}
+        {!collapsed && showDemoUnread && href === '/alerts' && unread > 0 && <span className="ml-auto flex min-w-4 items-center justify-center rounded-full bg-[#b9f227] px-1 text-[9px] font-bold text-black">{unread}</span>}
       </Link>)}
     </div>)}
   </nav>
@@ -64,6 +69,7 @@ function GlobalSearch() {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const usesNeonWorkspace = isNeonWorkspaceRoute(pathname)
   const item = navigationItemForPath(pathname)
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -75,7 +81,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className={`flex h-[72px] items-center border-b border-white/[0.07] ${collapsed ? 'justify-center px-3' : 'px-5'}`}><Brand compact={collapsed} /></div>
       <NavigationLinks pathname={pathname} collapsed={collapsed} />
       <div className="border-t border-white/[0.07] p-3">
-        {!collapsed && <div className="mb-3 flex items-center gap-3 rounded-lg bg-white/[0.035] p-3"><div className="flex size-8 items-center justify-center rounded-full bg-amber-300/10 text-amber-200"><UserRound className="size-4" /></div><div className="min-w-0"><p className="truncate text-xs font-medium">Ambiente local</p><p className="truncate text-[10px] text-zinc-600">Dados de demonstração</p></div></div>}
+      {!collapsed && <div className="mb-3 flex items-center gap-3 rounded-lg bg-white/[0.035] p-3"><div className={`flex size-8 items-center justify-center rounded-full ${usesNeonWorkspace ? 'bg-emerald-300/10 text-emerald-200' : 'bg-amber-300/10 text-amber-200'}`}><UserRound className="size-4" /></div><div className="min-w-0"><p className="truncate text-xs font-medium">{usesNeonWorkspace ? 'Workspace Neon' : 'Ambiente local'}</p><p className="truncate text-[10px] text-zinc-600">{usesNeonWorkspace ? 'Dados persistidos' : 'Dados de demonstração'}</p></div></div>}
         <button onClick={() => setCollapsed((value) => !value)} className="nav-item w-full justify-center text-zinc-500" aria-label={collapsed ? 'Expandir menu' : 'Recolher menu'} title={collapsed ? 'Expandir menu' : undefined}>{collapsed ? <PanelLeftOpen className="size-4" /> : <><PanelLeftClose className="size-4" /><span className="text-[11px]">Recolher menu</span></>}</button>
       </div>
     </aside>
@@ -87,11 +93,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="min-w-0"><div className="flex items-center gap-2 text-xs text-zinc-500"><span>Workspace</span><ChevronRight className="size-3" /><span className="truncate text-zinc-300">{item.label}</span></div><h1 className="mt-0.5 truncate text-[13px] font-semibold tracking-tight">{item.label}</h1></div>
         </div>
         <div className="flex shrink-0 items-center gap-2 sm:gap-4">
-          <span className="hidden items-center gap-2 rounded-full border border-amber-300/15 bg-amber-300/[0.04] px-3 py-1.5 sm:flex"><span className="size-1.5 rounded-full bg-amber-300" /><span className="text-[10px] font-medium tracking-wide text-amber-200">MODO DEMONSTRAÇÃO</span></span>
-          <GlobalSearch />
-          <Link className="icon-button relative" href="/alerts" aria-label={`Abrir alertas${unread ? `, ${unread} não lidos` : ''}`}><Bell className="size-4" />{unread > 0 && <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-[#b9f227]" />}</Link>
+          <span className={`hidden items-center gap-2 rounded-full px-3 py-1.5 sm:flex ${usesNeonWorkspace ? 'border border-emerald-300/15 bg-emerald-300/[0.04]' : 'border border-amber-300/15 bg-amber-300/[0.04]'}`}><span className={`size-1.5 rounded-full ${usesNeonWorkspace ? 'bg-emerald-300' : 'bg-amber-300'}`} /><span className={`text-[10px] font-medium tracking-wide ${usesNeonWorkspace ? 'text-emerald-200' : 'text-amber-200'}`}>{usesNeonWorkspace ? 'WORKSPACE NEON' : 'MODO DEMONSTRAÇÃO'}</span></span>
+          {!usesNeonWorkspace && <GlobalSearch />}
+          {!usesNeonWorkspace && <Link className="icon-button relative" href="/alerts" aria-label={`Abrir alertas${unread ? `, ${unread} não lidos` : ''}`}><Bell className="size-4" />{unread > 0 && <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-[#b9f227]" />}</Link>}
+          <button className="icon-button" aria-label="Sair da conta" title="Sair" onClick={async () => { await authClient.signOut(); window.location.assign('/auth/sign-in') }}><LogOut className="size-4" /></button>
           <span className="hidden h-6 w-px bg-white/[0.08] sm:block" />
-          <span className="hidden text-[10px] text-zinc-500 md:block">Somente dados locais</span>
+          <span className="hidden text-[10px] text-zinc-500 md:block">{usesNeonWorkspace ? 'Dados do workspace' : 'Somente dados locais'}</span>
         </div>
       </header>
       {children}
@@ -101,7 +108,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div role="dialog" aria-modal="true" aria-label="Navegação principal" className="flex h-full w-[min(300px,86vw)] flex-col border-r border-white/10 bg-[#0d0f11] p-4" onClick={(event) => event.stopPropagation()}>
         <div className="mb-5 flex h-10 items-center justify-between"><Brand /><button className="icon-button" onClick={() => setMobileOpen(false)} aria-label="Fechar navegação"><X className="size-5" /></button></div>
         <NavigationLinks pathname={pathname} onNavigate={() => setMobileOpen(false)} />
-        <p className="border-t border-white/[0.07] px-3 pt-4 text-[10px] text-zinc-500">Modo demonstração · alterações salvas neste navegador</p>
+        <p className="border-t border-white/[0.07] px-3 pt-4 text-[10px] text-zinc-500">{usesNeonWorkspace ? 'Workspace Neon · dados persistidos' : 'Modo demonstração · alterações salvas neste navegador'}</p>
       </div>
     </div>}
   </div>

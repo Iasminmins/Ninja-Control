@@ -3,12 +3,13 @@ import type { LucideIcon } from 'lucide-react'
 import { AlertTriangle, Database } from 'lucide-react'
 import { useDemoWorkspace } from '@/hooks/use-demo-workspace'
 
-export function PageFrame({ eyebrow = 'AMBIENTE DE DEMONSTRAÇÃO', title, description, actions, children }: {
+export function PageFrame({ eyebrow = 'AMBIENTE DE DEMONSTRAÇÃO', title, description, actions, children, showDemoNotice = true }: {
   eyebrow?: string
   title: string
   description: string
   actions?: ReactNode
   children: ReactNode
+  showDemoNotice?: boolean
 }) {
   const module = title.toLocaleLowerCase('pt-BR').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
   return <main data-module={module} className="mx-auto max-w-[1500px] px-5 py-7 sm:px-8 sm:py-9 xl:px-10">
@@ -16,7 +17,7 @@ export function PageFrame({ eyebrow = 'AMBIENTE DE DEMONSTRAÇÃO', title, descr
       <div><div className="mb-3 flex items-center gap-2"><span className="eyebrow-dot" /><span className="eyebrow">{eyebrow}</span></div><h2 className="text-[26px] font-semibold tracking-[-0.04em] text-white sm:text-[32px]">{title}</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">{description}</p></div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
-    <DemoNotice />
+    {showDemoNotice && <DemoNotice />}
     {children}
   </main>
 }

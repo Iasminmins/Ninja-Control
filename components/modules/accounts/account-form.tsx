@@ -16,11 +16,12 @@ function suggestedAccountName(firm: string, existingNames: string[]) {
   return candidate
 }
 
-export function AccountForm({ initial, existingNames, onSave, onCancel }: {
+export function AccountForm({ initial, existingNames, onSave, onCancel, mode = 'demo' }: {
   initial: DemoAccount | null
   existingNames: string[]
   onSave: (account: DemoAccount) => void
   onCancel: () => void
+  mode?: 'demo' | 'persisted'
 }) {
   const [name, setName] = useState(initial?.name ?? '')
   const [firm, setFirm] = useState(initial?.firm ?? '')
@@ -28,6 +29,11 @@ export function AccountForm({ initial, existingNames, onSave, onCancel }: {
   const [kind, setKind] = useState<AccountKind>(initial?.kind ?? 'evaluation')
   const [stage, setStage] = useState(initial?.stage ?? 'Avaliação')
   const [capital, setCapital] = useState(String(initial?.startingCapital ?? 50_000))
+  const [profitTarget, setProfitTarget] = useState(initial?.profitTarget ? String(initial.profitTarget) : '')
+  const [consistency, setConsistency] = useState(initial?.consistencyPercent == null ? '' : String(initial.consistencyPercent))
+  const [minimumDays, setMinimumDays] = useState(initial?.minimumTradingDays == null ? '' : String(initial.minimumTradingDays))
+  const [maximumContracts, setMaximumContracts] = useState(initial?.maximumContracts == null ? '' : String(initial.maximumContracts))
+  const [additionalRules, setAdditionalRules] = useState(initial?.additionalRules ?? '')
   const [dailyLimit, setDailyLimit] = useState(String(initial?.dailyLossLimit ?? 2_500))
   const [trailingLimit, setTrailingLimit] = useState(String(initial?.trailingDrawdownLimit ?? 2_250))
   const [buffer, setBuffer] = useState(String(initial?.drawdownBufferPercent ?? 100))
@@ -48,7 +54,11 @@ export function AccountForm({ initial, existingNames, onSave, onCancel }: {
     const dailyValue = Number(dailyLimit)
     const trailingValue = Number(trailingLimit)
     const bufferValue = Number(buffer)
-    if (![capitalValue, dailyValue, trailingValue, bufferValue].every(Number.isFinite) || capitalValue <= 0 || dailyValue <= 0 || trailingValue <= 0 || bufferValue < 0 || bufferValue > 100) {
+    const targetValue = profitTarget.trim() ? Number(profitTarget) : undefined
+    const consistencyValue = consistency.trim() ? Number(consistency) : undefined
+    const minimumDaysValue = minimumDays.trim() ? Number(minimumDays) : undefined
+    const maximumContractsValue = maximumContracts.trim() ? Number(maximumContracts) : undefined
+    if (![capitalValue, dailyValue, trailingValue, bufferValue, ...(targetValue === undefined ? [] : [targetValue]), ...(consistencyValue === undefined ? [] : [consistencyValue]), ...(minimumDaysValue === undefined ? [] : [minimumDaysValue]), ...(maximumContractsValue === undefined ? [] : [maximumContractsValue])].every(Number.isFinite) || capitalValue <= 0 || dailyValue <= 0 || trailingValue <= 0 || bufferValue < 0 || bufferValue > 100 || (targetValue !== undefined && targetValue <= 0) || (consistencyValue !== undefined && (consistencyValue < 0 || consistencyValue > 100)) || (minimumDaysValue !== undefined && (!Number.isInteger(minimumDaysValue) || minimumDaysValue < 0 || minimumDaysValue > 365)) || (maximumContractsValue !== undefined && (!Number.isInteger(maximumContractsValue) || maximumContractsValue < 1))) {
       setError('Confira os valores. Capital e limites devem ser positivos; o buffer deve ficar entre 0% e 100%.')
       return
     }
@@ -61,6 +71,11 @@ export function AccountForm({ initial, existingNames, onSave, onCancel }: {
       kind,
       stage: stage.trim(),
       startingCapital: capitalValue,
+      profitTarget: targetValue,
+      consistencyPercent: consistencyValue,
+      minimumTradingDays: minimumDaysValue,
+      maximumContracts: maximumContractsValue,
+      additionalRules: additionalRules.trim() || undefined,
       dailyLossLimit: dailyValue,
       trailingDrawdownLimit: trailingValue,
       drawdownBufferPercent: bufferValue,
@@ -81,10 +96,15 @@ export function AccountForm({ initial, existingNames, onSave, onCancel }: {
     <label className="text-xs text-zinc-400">Tipo<select className={inputClass} value={kind} onChange={(event) => { const next = event.target.value as AccountKind; setKind(next); setStage(next === 'funded' ? 'Financiada' : next === 'combine' ? 'Combine' : 'Avaliação') }}><option value="evaluation">Avaliação</option><option value="funded">Financiada</option><option value="combine">Combine</option></select></label>
     <label className="text-xs text-zinc-400">Etapa<input className={inputClass} value={stage} onChange={(event) => setStage(event.target.value)} required maxLength={48} /></label>
     <label className="text-xs text-zinc-400">Capital inicial (USD)<input className={inputClass} type="number" min="1" step="0.01" value={capital} onChange={(event) => setCapital(event.target.value)} required /></label>
+    <label className="text-xs text-zinc-400">Profit target (USD, opcional)<input className={inputClass} type="number" min="1" step="0.01" value={profitTarget} onChange={(event) => setProfitTarget(event.target.value)} placeholder="Informe conforme as regras do plano" /></label>
     <label className="text-xs text-zinc-400">Limite de perda diária (USD)<input className={inputClass} type="number" min="1" step="0.01" value={dailyLimit} onChange={(event) => setDailyLimit(event.target.value)} required /></label>
     <label className="text-xs text-zinc-400">Drawdown móvel (USD)<input className={inputClass} type="number" min="1" step="0.01" value={trailingLimit} onChange={(event) => setTrailingLimit(event.target.value)} required /></label>
-    <label className="text-xs text-zinc-400">Buffer demonstrativo (%)<input className={inputClass} type="number" min="0" max="100" step="1" value={buffer} onChange={(event) => setBuffer(event.target.value)} required /></label>
+    <label className="text-xs text-zinc-400">Consistência máxima (%)<input className={inputClass} type="number" min="0" max="100" step="0.1" value={consistency} onChange={(event) => setConsistency(event.target.value)} placeholder="Opcional · conforme regra do plano" /></label>
+    <label className="text-xs text-zinc-400">Dias mínimos de operação<input className={inputClass} type="number" min="0" max="365" step="1" value={minimumDays} onChange={(event) => setMinimumDays(event.target.value)} placeholder="Opcional · conforme regra do plano" /></label>
+    <label className="text-xs text-zinc-400">Máximo de contratos<input className={inputClass} type="number" min="1" step="1" value={maximumContracts} onChange={(event) => setMaximumContracts(event.target.value)} placeholder="Opcional · conforme regra do plano" /></label>
+    <label className="text-xs text-zinc-400 sm:col-span-2">Outras regras / payout / scaling<textarea className={`${inputClass} h-auto py-2`} rows={2} maxLength={2000} value={additionalRules} onChange={(event) => setAdditionalRules(event.target.value)} placeholder="Registre as regras do plano que não aparecem nos campos acima" /></label>
+    {mode === 'demo' && <label className="text-xs text-zinc-400">Buffer demonstrativo (%)<input className={inputClass} type="number" min="0" max="100" step="1" value={buffer} onChange={(event) => setBuffer(event.target.value)} required /></label>}
     {error && <p role="alert" className="rounded-lg border border-rose-400/20 bg-rose-400/[0.04] p-3 text-xs text-rose-200 sm:col-span-2">{error}</p>}
-    <div className="flex flex-wrap justify-end gap-2 sm:col-span-2"><SecondaryButton type="button" onClick={onCancel}>Cancelar</SecondaryButton><PrimaryButton type="submit">{initial ? 'Salvar alterações' : 'Criar conta de demonstração'}</PrimaryButton></div>
+    <div className="flex flex-wrap justify-end gap-2 sm:col-span-2"><SecondaryButton type="button" onClick={onCancel}>Cancelar</SecondaryButton><PrimaryButton type="submit">{initial ? 'Salvar alterações' : mode === 'persisted' ? 'Criar conta no Neon' : 'Criar conta de demonstração'}</PrimaryButton></div>
   </form>
 }

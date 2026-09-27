@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "execution_nodes_workspace_name_unique" ON "execution_nodes" USING btree ("workspace_id","name");
