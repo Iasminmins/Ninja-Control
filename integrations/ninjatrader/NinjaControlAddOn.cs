@@ -1,4 +1,4 @@
-// NinjaTrader 8 AddOn source. Endpoint, token, and Sim account are configured from the Control Center menu.
+// NinjaTrader 8 AddOn source. Endpoint, token, and account are configured from the Control Center menu.
 // This file intentionally uses no Account.Submit/Change/Cancel/Flatten methods.
 using System;
 using System.Collections.Concurrent;
@@ -79,10 +79,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             LoadSettings();
             var endpointBox = new TextBox { Text = endpoint, MinWidth = 420, Margin = new Thickness(0, 4, 0, 12) };
             var tokenBox = new PasswordBox { Password = token, MinWidth = 420, Margin = new Thickness(0, 4, 0, 12) };
-            var accountBox = new ComboBox { MinWidth = 420, Margin = new Thickness(0, 4, 0, 12), IsEditable = false };
+            var accountBox = new ComboBox { MinWidth = 420, Margin = new Thickness(0, 4, 0, 12), IsEditable = false, DisplayMemberPath = "DisplayName", SelectedValuePath = "Name" };
             lock (Account.All)
-                foreach (Account candidate in Account.All.Where(IsSimulationAccount)) accountBox.Items.Add(candidate.Name);
-            if (!String.IsNullOrWhiteSpace(accountName) && accountBox.Items.Contains(accountName)) accountBox.SelectedItem = accountName;
+                foreach (Account candidate in Account.All.Where(IsSupportedAccount)) accountBox.Items.Add(new AccountChoice { Name = candidate.Name, DisplayName = candidate.Name + " · " + GetAccountModeLabel(candidate) });
+            if (!String.IsNullOrWhiteSpace(accountName) && accountBox.Items.OfType<AccountChoice>().Any(choice => choice.Name == accountName)) accountBox.SelectedValue = accountName;
             else if (accountBox.Items.Count > 0) accountBox.SelectedIndex = 0;
 
             var saveButton = new Button { Content = "Salvar e iniciar sincronização somente leitura", Padding = new Thickness(12, 8, 12, 8), HorizontalAlignment = HorizontalAlignment.Left, IsDefault = true };
@@ -90,8 +90,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             content.Children.Add(new TextBlock { Text = "Ninja Control · Conexão somente leitura", FontSize = 17, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 16) });
             content.Children.Add(new TextBlock { Text = "Endpoint HTTPS" }); content.Children.Add(endpointBox);
             content.Children.Add(new TextBlock { Text = "Token do workspace (protegido no Windows deste usuário)" }); content.Children.Add(tokenBox);
-            content.Children.Add(new TextBlock { Text = "Conta Sim/demo" }); content.Children.Add(accountBox);
-            content.Children.Add(new TextBlock { Text = "Use Criar token na página Integrações do Ninja Control. Contas reais não aparecem nesta lista.", TextWrapping = TextWrapping.Wrap, Opacity = 0.72, Margin = new Thickness(0, 0, 0, 14) });
+            content.Children.Add(new TextBlock { Text = "Conta NinjaTrader" }); content.Children.Add(accountBox);
+            content.Children.Add(new TextBlock { Text = "Contas LIVE usam dinheiro real. A sincronização é somente leitura e não envia nem altera ordens.", TextWrapping = TextWrapping.Wrap, Opacity = 0.82, Margin = new Thickness(0, 0, 0, 14) });
             content.Children.Add(saveButton);
             var dialog = new Window { Title = "Configurar Ninja Control", Content = content, SizeToContent = SizeToContent.WidthAndHeight, WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = controlCenter, ResizeMode = ResizeMode.NoResize };
             saveButton.Click += (s, args) =>
@@ -101,13 +101,13 @@ namespace NinjaTrader.NinjaScript.AddOns
                 {
                     MessageBox.Show(dialog, "Informe um endpoint HTTPS válido.", "Ninja Control", MessageBoxButton.OK, MessageBoxImage.Warning); return;
                 }
-                if (String.IsNullOrWhiteSpace(tokenBox.Password) || accountBox.SelectedItem == null)
+                if (String.IsNullOrWhiteSpace(tokenBox.Password) || accountBox.SelectedValue == null)
                 {
-                    MessageBox.Show(dialog, "Informe o token e selecione uma conta Sim/demo.", "Ninja Control", MessageBoxButton.OK, MessageBoxImage.Warning); return;
+                    MessageBox.Show(dialog, "Informe o token e selecione uma conta.", "Ninja Control", MessageBoxButton.OK, MessageBoxImage.Warning); return;
                 }
                 endpoint = uri.ToString().TrimEnd('/');
                 token = tokenBox.Password.Trim();
-                accountName = accountBox.SelectedItem.ToString();
+                accountName = accountBox.SelectedValue.ToString();
                 SaveSettings();
                 dialog.DialogResult = true;
             };
@@ -118,26 +118,26 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (account != null) return;
             if (String.IsNullOrWhiteSpace(endpoint) || String.IsNullOrWhiteSpace(token) || String.IsNullOrWhiteSpace(accountName))
             {
-                NinjaTrader.Code.Output.Process("Configure endpoint, token, and Sim account from New > Ninja Control.", PrintTo.OutputTab1);
+                NinjaTrader.Code.Output.Process("Configure endpoint, token, and account from New > Ninja Control.", PrintTo.OutputTab1);
                 return;
             }
             lock (Account.All)
-                account = Account.All.FirstOrDefault(a => a.Name == accountName && IsSimulationAccount(a));
+                account = Account.All.FirstOrDefault(a => a.Name == accountName && IsSupportedAccount(a));
             if (account == null)
             {
-                NinjaTrader.Code.Output.Process("Configured account was not found as a Sim account. No account was attached.", PrintTo.OutputTab1);
+                NinjaTrader.Code.Output.Process("Configured account was not found in the available NinjaTrader connections. No account was attached.", PrintTo.OutputTab1);
                 return;
             }
             account.AccountItemUpdate += OnAccountItemUpdate;
             account.PositionUpdate += OnPositionUpdate;
             account.OrderUpdate += OnOrderUpdate;
             account.ExecutionUpdate += OnExecutionUpdate;
-            Enqueue(new { type = "account_discovered", accountId = ExternalAccountId, accountName = account.Name });
+            Enqueue(new { type = "account_discovered", accountId = ExternalAccountId, accountName = account.Name, accountMode = GetAccountMode(account) });
             SendSnapshot();
             lock (account.Positions)
                 foreach (Position position in account.Positions) EnqueuePosition(position);
             flushTimer = new Timer(_ => FlushQueue(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2));
-            heartbeatTimer = new Timer(_ => Enqueue(new { type = "account_discovered", accountId = ExternalAccountId, accountName = account.Name }), null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2));
+            heartbeatTimer = new Timer(_ => Enqueue(new { type = "account_discovered", accountId = ExternalAccountId, accountName = account.Name, accountMode = GetAccountMode(account) }), null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2));
             NinjaTrader.Code.Output.Process("Ninja Control read-only sync started for " + account.Name + ".", PrintTo.OutputTab1);
         }
         private void StopConnector()
@@ -156,10 +156,25 @@ namespace NinjaTrader.NinjaScript.AddOns
             heartbeatTimer = null;
         }
 
-        private static bool IsSimulationAccount(Account candidate)
+        private static bool IsSupportedAccount(Account candidate)
         {
-            return candidate != null && candidate.Connection != null &&
-                (candidate.Name.StartsWith("Sim", StringComparison.OrdinalIgnoreCase) || candidate.Connection.Options.Name.IndexOf("Sim", StringComparison.OrdinalIgnoreCase) >= 0);
+            return candidate != null && candidate.Connection != null && candidate.Connection.Options != null;
+        }
+
+        private static string GetAccountMode(Account candidate)
+        {
+            return candidate != null && candidate.Connection != null && candidate.Connection.Options != null && candidate.Connection.Options.Mode == Mode.Live ? "live" : "simulation";
+        }
+
+        private static string GetAccountModeLabel(Account candidate)
+        {
+            return GetAccountMode(candidate) == "live" ? "LIVE · CONTA REAL" : "SIM · DEMONSTRAÇÃO";
+        }
+
+        private sealed class AccountChoice
+        {
+            public string Name { get; set; }
+            public string DisplayName { get; set; }
         }
 
         private static string SettingsPath

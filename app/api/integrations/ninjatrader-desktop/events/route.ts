@@ -21,7 +21,11 @@ function validate(input: unknown): (Payload & { occurred: Date }) | null {
   const occurredAt = boundedText(raw.occurredAt, 60)
   const occurred = occurredAt ? new Date(occurredAt) : null
   if (!eventId || !/^[A-Za-z0-9._:-]+$/.test(eventId) || !type || !occurred || !Number.isFinite(occurred.getTime())) return null
-  if (type === 'account_discovered') return boundedText(raw.accountId, 240) && boundedText(raw.accountName, 120) ? { ...raw, eventId, type, occurredAt, occurred } as Payload & { occurred: Date } : null
+  if (type === 'account_discovered') {
+    const accountMode = raw.accountMode === undefined ? 'simulation' : raw.accountMode
+    if (accountMode !== 'live' && accountMode !== 'simulation') return null
+    return boundedText(raw.accountId, 240) && boundedText(raw.accountName, 120) ? { ...raw, accountMode, eventId, type, occurredAt, occurred } as Payload & { occurred: Date } : null
+  }
   const accountId = boundedText(raw.accountId, 240)
   if (!accountId) return null
   if (type === 'account_snapshot') {
@@ -80,7 +84,11 @@ export async function POST(request: Request) {
     const payload = { ...event, occurredAt: event.occurred.toISOString() }
     const statements = [sql`INSERT INTO integration_events (id, workspace_id, provider, event_type, idempotency_key, payload, received_at) VALUES (${randomUUID()}, ${connection.workspaceId}, ${provider}, ${event.type}, ${event.eventId}, ${JSON.stringify(payload)}::jsonb, ${now}) ON CONFLICT (workspace_id, provider, idempotency_key) DO NOTHING RETURNING id`]
     const accepted = sql`EXISTS (SELECT 1 FROM integration_events WHERE workspace_id = ${connection.workspaceId} AND provider = ${provider} AND idempotency_key = ${event.eventId} AND processed_at IS NULL)`
-    if (event.type === 'account_discovered') statements.push(sql`INSERT INTO integration_account_mappings (id, workspace_id, connection_id, external_account_id, external_account_name, last_seen_at) SELECT ${randomUUID()}, ${connection.workspaceId}, ${connection.id}, ${String(event.accountId)}, ${String(event.accountName)}, ${event.occurred} WHERE ${accepted} ON CONFLICT (connection_id, external_account_id) DO UPDATE SET external_account_name = EXCLUDED.external_account_name, last_seen_at = EXCLUDED.last_seen_at, updated_at = now()`)
+    if (event.type === 'account_discovered') {
+      const modeLabel = event.accountMode === 'live' ? 'LIVE' : 'SIM'
+      const accountLabel = `${String(event.accountName)} · ${modeLabel}`
+      statements.push(sql`INSERT INTO integration_account_mappings (id, workspace_id, connection_id, external_account_id, external_account_name, last_seen_at) SELECT ${randomUUID()}, ${connection.workspaceId}, ${connection.id}, ${String(event.accountId)}, ${accountLabel}, ${event.occurred} WHERE ${accepted} ON CONFLICT (connection_id, external_account_id) DO UPDATE SET external_account_name = EXCLUDED.external_account_name, last_seen_at = EXCLUDED.last_seen_at, updated_at = now()`)
+    }
     if (event.type === 'account_snapshot' && mapping?.tradingAccountId) statements.push(sql`INSERT INTO account_risk_snapshots (id, workspace_id, account_id, captured_at, balance_cents, equity_cents, daily_loss_cents, source) SELECT ${randomUUID()}, ${connection.workspaceId}, ${mapping.tradingAccountId}, ${event.occurred}, ${integer(event.balanceCents, -2_000_000_000)}, ${integer(event.equityCents, -2_000_000_000)}, ${integer(event.dailyLossCents, -2_000_000_000)}, 'NinjaTrader' WHERE ${accepted}`)
     if (event.type === 'position_snapshot' && mapping) statements.push(sql`INSERT INTO integration_positions (id, workspace_id, mapping_id, instrument, quantity, average_price, unrealized_pnl_cents, captured_at, updated_at) SELECT ${randomUUID()}, ${connection.workspaceId}, ${mapping.id}, ${String(event.instrument)}, ${integer(event.quantity)}, ${number(event.averagePrice, 0)}, ${integer(event.unrealizedPnlCents, -2_000_000_000)}, ${event.occurred}, now() WHERE ${accepted} ON CONFLICT (mapping_id, instrument) DO UPDATE SET quantity = EXCLUDED.quantity, average_price = EXCLUDED.average_price, unrealized_pnl_cents = EXCLUDED.unrealized_pnl_cents, captured_at = EXCLUDED.captured_at, updated_at = now()`)
     if (event.type === 'order' && mapping?.tradingAccountId) statements.push(sql`INSERT INTO trading_orders (id, workspace_id, account_id, external_id, instrument, side, quantity, status, submitted_at, origin, provider) SELECT ${randomUUID()}, ${connection.workspaceId}, ${mapping.tradingAccountId}, ${String(event.orderId ?? event.eventId)}, ${String(event.instrument)}, ${String(event.side)}, ${integer(event.quantity, 1)}, ${String(event.status)}, ${event.occurred}, 'provider', 'NinjaTrader' WHERE ${accepted} ON CONFLICT (workspace_id, provider, external_id) DO NOTHING`)

@@ -10,18 +10,19 @@ INSTALACAO EM QUALQUER PC WINDOWS COM NINJATRADER 8 DESKTOP
 4. No Control Center, abra New > Ninja Control - Iniciar sincronização
    somente leitura.
 5. Informe o endpoint HTTPS e o token do workspace. Selecione uma conta
-   Sim/demo na lista e salve.
+   na lista e confira o modo: LIVE · CONTA REAL ou SIM · DEMONSTRAÇÃO.
 6. No Ninja Control, associe a conta descoberta à conta correspondente.
 
 SEGURANCA
 
-- O AddOn lista e aceita somente contas identificadas como Sim/demo.
+- O AddOn permite sincronizar contas LIVE e Sim/demo do NinjaTrader.
+- LIVE usa dinheiro real. Confira o rótulo da conta antes de iniciar.
 - A credencial é protegida pelo Windows DPAPI para o usuário atual. Não copie
   settings.json entre PCs; configure o token de novo em cada computador.
 - O arquivo de configurações fica em Documentos\NinjaTrader 8\NinjaControl.
 - Cada instalação tem um identificador local; nomes iguais de contas em PCs
   diferentes aparecem separadamente para que você vincule cada uma.
-- O AddOn não envia, altera, cancela ou liquida ordens.
+- A integração é somente leitura: não envia, altera, cancela ou liquida ordens.
 - Use somente credencial do workspace e mantenha-a privada.
 
 ARQUIVOS
