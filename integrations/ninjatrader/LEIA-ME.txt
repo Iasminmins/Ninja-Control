@@ -1,0 +1,33 @@
+NINJA CONTROL - CONECTOR NINJATRADER 8 (SOMENTE LEITURA)
+
+INSTALACAO EM QUALQUER PC WINDOWS COM NINJATRADER 8 DESKTOP
+
+1. No Ninja Control, abra Integrações > NinjaTrader 8 Desktop e crie um token.
+   Copie o token; ele só é mostrado uma vez.
+2. No NinjaTrader, abra New > NinjaScript Editor.
+3. Crie um AddOn chamado NinjaControlAddOn e cole o conteúdo de
+   NinjaControlAddOn.cs no editor. Compile pelo próprio NinjaTrader.
+4. No Control Center, abra New > Ninja Control - Iniciar sincronização
+   somente leitura.
+5. Informe o endpoint HTTPS e o token do workspace. Selecione uma conta
+   Sim/demo na lista e salve.
+6. No Ninja Control, associe a conta descoberta à conta correspondente.
+
+SEGURANCA
+
+- O AddOn lista e aceita somente contas identificadas como Sim/demo.
+- A credencial é protegida pelo Windows DPAPI para o usuário atual. Não copie
+  settings.json entre PCs; configure o token de novo em cada computador.
+- O arquivo de configurações fica em Documentos\NinjaTrader 8\NinjaControl.
+- Cada instalação tem um identificador local; nomes iguais de contas em PCs
+  diferentes aparecem separadamente para que você vincule cada uma.
+- O AddOn não envia, altera, cancela ou liquida ordens.
+- Use somente credencial do workspace e mantenha-a privada.
+
+ARQUIVOS
+
+- NinjaControlAddOn.cs: código-fonte do AddOn.
+- LEIA-ME.txt: estas instruções.
+
+A compilação do NinjaScript deve ocorrer no NinjaTrader instalado no PC de
+destino, pois as bibliotecas da plataforma não acompanham este pacote.

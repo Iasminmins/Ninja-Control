@@ -287,6 +287,33 @@ export const integrationConnections = pgTable('integration_connections', {
   updatedAt: updatedAt(),
 }, (table) => [uniqueIndex('integration_connections_workspace_provider_unique').on(table.workspaceId, table.provider)])
 
+export const integrationAccountMappings = pgTable('integration_account_mappings', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  connectionId: uuid('connection_id').notNull().references(() => integrationConnections.id, { onDelete: 'cascade' }),
+  externalAccountId: varchar('external_account_id', { length: 240 }).notNull(),
+  externalAccountName: varchar('external_account_name', { length: 120 }).notNull(),
+  tradingAccountId: uuid('trading_account_id').references(() => tradingAccounts.id, { onDelete: 'set null' }),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow().notNull(),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => [
+  uniqueIndex('integration_account_mapping_external_unique').on(table.connectionId, table.externalAccountId),
+  index('integration_account_mapping_workspace_idx').on(table.workspaceId, table.lastSeenAt),
+])
+
+export const integrationPositions = pgTable('integration_positions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  mappingId: uuid('mapping_id').notNull().references(() => integrationAccountMappings.id, { onDelete: 'cascade' }),
+  instrument: varchar('instrument', { length: 80 }).notNull(),
+  quantity: integer('quantity').notNull(),
+  averagePrice: numeric('average_price', { precision: 18, scale: 8, mode: 'number' }),
+  unrealizedPnlCents: integer('unrealized_pnl_cents'),
+  capturedAt: timestamp('captured_at', { withTimezone: true }).notNull(),
+  updatedAt: updatedAt(),
+}, (table) => [uniqueIndex('integration_positions_mapping_instrument_unique').on(table.mappingId, table.instrument)])
+
 export const alertRules = pgTable('alert_rules', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),

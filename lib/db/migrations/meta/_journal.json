@@ -36,6 +36,13 @@
       "when": 1790531046788,
       "tag": "0004_peaceful_dreaming_celestial",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790578800000,
+      "tag": "0005_ninjatrader_desktop",
+      "breakpoints": true
     }
   ]
 }
