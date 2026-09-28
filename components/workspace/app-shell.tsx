@@ -1,9 +1,10 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { useMemo, useState } from 'react'
-import { Bell, ChevronRight, Command, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Search, UserRound, X } from 'lucide-react'
+import { Bell, ChevronRight, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Search, UserRound, X } from 'lucide-react'
 import { useDemoWorkspace } from '@/hooks/use-demo-workspace'
 import { authClient } from '@/lib/auth/client'
 import { accountBalance } from '@/lib/demo/selectors'
@@ -19,8 +20,15 @@ const isNeonWorkspaceRoute = (pathname: string) => neonWorkspaceRoutes.some((rou
 
 function Brand({ compact = false }: { compact?: boolean }) {
   return <Link href="/dashboard" className="flex min-w-0 items-center" aria-label="Ninja Control — abrir dashboard">
-    <span className="brand-mark"><Command className="size-4" /></span>
-    {!compact && <span className="ml-3 min-w-0"><span className="block whitespace-nowrap text-[13px] font-semibold tracking-[0.17em] text-white">NINJA<span className="text-[#c5ef58]">CONTROL</span></span><span className="mt-1 block whitespace-nowrap text-[9px] tracking-[0.13em] text-zinc-500">TRADING INTELLIGENCE</span></span>}
+    <Image
+      src={compact ? '/brand/ninja-control-mark-original.png' : '/brand/ninja-control-horizontal-original.png'}
+      alt=""
+      aria-hidden="true"
+      width={compact ? 1280 : 2048}
+      height={compact ? 1280 : 664}
+      className={compact ? 'size-12 shrink-0 object-contain mix-blend-screen' : 'h-auto w-[190px] max-w-full object-contain mix-blend-screen'}
+      priority
+    />
   </Link>
 }
 

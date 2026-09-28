@@ -1,9 +1,10 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { FormEvent, useState } from 'react'
-import { Command, LoaderCircle } from 'lucide-react'
+import { LoaderCircle } from 'lucide-react'
 import { authClient } from '@/lib/auth/client'
 
 export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
@@ -42,11 +43,9 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
 
   return <main className="flex min-h-screen items-center justify-center bg-[#090a0c] px-5 py-12 text-zinc-100">
     <section className="w-full max-w-md rounded-2xl border border-white/[0.09] bg-[#111416] p-7 shadow-2xl sm:p-9">
-      <Link href="/" className="mb-9 flex items-center gap-3" aria-label="Ninja Control">
-        <span className="flex size-10 items-center justify-center rounded-xl border border-[#c5ef58]/20 bg-[#c5ef58]/[0.08] text-[#c5ef58]"><Command className="size-5" /></span>
-        <span className="text-sm font-semibold tracking-[0.14em]">NINJA<span className="text-[#c5ef58]">CONTROL</span></span>
+      <Link href="/" className="mb-9 block w-fit" aria-label="Ninja Control">
+        <Image src="/brand/ninja-control-horizontal-original.png" alt="Ninja Control — Trading Intelligence" width={2048} height={664} priority className="h-auto w-[300px] max-w-full object-contain mix-blend-screen" />
       </Link>
-      <p className="text-[10px] font-semibold tracking-[0.17em] text-[#c5ef58]">TRADING INTELLIGENCE</p>
       <h1 className="mt-2 text-2xl font-semibold tracking-tight">{signingUp ? 'Criar sua conta' : 'Acesse seu workspace'}</h1>
       <p className="mt-2 text-sm text-zinc-400">{signingUp ? 'Crie seu acesso para continuar no Ninja Control.' : 'Entre com o e-mail e a senha da sua conta.'}</p>
 
