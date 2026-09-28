@@ -14,6 +14,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Windows.Controls;
 using NinjaTrader.Cbi;
+using NinjaTrader.Data;
 using NinjaTrader.Gui;
 using NinjaTrader.Gui.Tools;
 using NinjaTrader.NinjaScript;
