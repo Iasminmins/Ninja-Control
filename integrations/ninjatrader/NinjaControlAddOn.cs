@@ -52,6 +52,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly SemaphoreSlim sender = new SemaphoreSlim(1, 1);
         private readonly ConcurrentDictionary<string, Account> accounts = new ConcurrentDictionary<string, Account>();
         private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, double>> observedAccountValues = new ConcurrentDictionary<string, ConcurrentDictionary<string, double>>();
+        private readonly ConcurrentDictionary<string, DateTime> lastSnapshotQueuedUtc = new ConcurrentDictionary<string, DateTime>();
         private readonly ConditionalWeakTable<Order, OrderIdentity> orderIdentities = new ConditionalWeakTable<Order, OrderIdentity>();
         private Timer flushTimer;
         private Timer heartbeatTimer;
@@ -196,7 +197,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 candidate.ExecutionUpdate += OnExecutionUpdate;
                 Enqueue(new { type = "account_discovered", accountId = ExternalAccountId(candidate), accountName = candidate.Name, accountMode = GetAccountMode(candidate) });
                 Enqueue(new { type = "sync_start", accountId = ExternalAccountId(candidate), syncId });
-                SendSnapshot(candidate, syncId);
+                SendSnapshot(candidate, syncId, true);
                 int positionCount = 0;
                 lock (candidate.Positions)
                     foreach (Position position in candidate.Positions)
@@ -211,13 +212,13 @@ namespace NinjaTrader.NinjaScript.AddOns
                         if (execution != null) { EnqueueExecution(candidate, execution); executionCount++; }
                 Enqueue(new { type = "sync_complete", accountId = ExternalAccountId(candidate), syncId, positionCount, orderCount, executionCount });
             }
-            flushTimer = new Timer(_ => FlushQueue(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2));
+            flushTimer = new Timer(_ => FlushQueue(), null, TimeSpan.FromMilliseconds(500), TimeSpan.FromMilliseconds(500));
             heartbeatTimer = new Timer(_ =>
             {
                 foreach (Account candidate in accounts.Values)
                 {
                     Enqueue(new { type = "account_discovered", accountId = ExternalAccountId(candidate), accountName = candidate.Name, accountMode = GetAccountMode(candidate) });
-                    SendSnapshot(candidate);
+                    SendSnapshot(candidate, null, true);
                 }
             }, null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2));
             string connectedNames = String.Join(", ", selectedAccounts.Select(candidate => candidate.Name).ToArray());
@@ -375,9 +376,17 @@ namespace NinjaTrader.NinjaScript.AddOns
             else Enqueue(new { type = "execution_removed", executionId = execution.ExecutionId, accountId = ExternalAccountId(candidate) });
         }
 
-        private void SendSnapshot(Account candidate, string syncId = null)
+        private void SendSnapshot(Account candidate, string syncId = null, bool force = false)
         {
             if (candidate == null) return;
+            string accountKey = ExternalAccountId(candidate);
+            DateTime now = DateTime.UtcNow;
+            if (!force)
+            {
+                DateTime lastQueued;
+                if (lastSnapshotQueuedUtc.TryGetValue(accountKey, out lastQueued) && now - lastQueued < TimeSpan.FromSeconds(5)) return;
+                lastSnapshotQueuedUtc[accountKey] = now;
+            }
             ConcurrentDictionary<string, double> observed = observedAccountValues.GetOrAdd(ExternalAccountId(candidate), _ => new ConcurrentDictionary<string, double>());
             double cash;
             if (!observed.TryGetValue(AccountItem.CashValue.ToString(), out cash)) cash = candidate.Get(AccountItem.CashValue, candidate.Denomination);
@@ -397,7 +406,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             double netLiquidation;
             bool hasObservedNetLiquidation = observed.TryGetValue(AccountItem.NetLiquidation.ToString(), out netLiquidation);
             int equityCents = ToCents(hasObservedNetLiquidation ? netLiquidation : cash + unrealized);
-            Enqueue(new { type = "account_snapshot", accountId = ExternalAccountId(candidate), balanceCents = ToCents(cash), equityCents, equityMethod = hasObservedNetLiquidation ? "net_liquidation_reported" : "cash_plus_unrealized_calculated", currency = candidate.Denomination.ToString(), providerValues, syncId });
+            Enqueue(new { type = "account_snapshot", accountId = ExternalAccountId(candidate), balanceCents = ToCents(cash), equityCents, equityMethod = hasObservedNetLiquidation ? "net_liquidation_reported" : "cash_plus_unrealized_calculated", currency = CurrencyCode(candidate.Denomination.ToString()), providerValues, syncId });
         }
         private void EnqueuePosition(Account candidate, Position position, string syncId)
         {
@@ -413,9 +422,50 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             OrderAction? action = execution.Order == null ? (OrderAction?)null : execution.Order.OrderAction;
             string side = !action.HasValue ? null : action.Value == OrderAction.Buy || action.Value == OrderAction.BuyToCover ? "buy" : "sell";
-            Enqueue(new { type = "execution", executionId = execution.ExecutionId, orderId = execution.Order == null ? null : execution.Order.OrderId, accountId = ExternalAccountId(candidate), instrument = execution.Instrument.FullName, side, quantity = execution.Quantity, price = execution.Price, executedAt = execution.Time.ToUniversalTime().ToString("o") });
+            double? pointValue = null;
+            string currency = null;
+            try
+            {
+                if (execution.Instrument != null && execution.Instrument.MasterInstrument != null)
+                {
+                    pointValue = execution.Instrument.MasterInstrument.PointValue;
+                    currency = CurrencyCode(execution.Instrument.MasterInstrument.Currency.ToString());
+                }
+            }
+            catch { }
+            int? commissionCents = null;
+            try { commissionCents = ToCents(execution.Commission); } catch { }
+            Enqueue(new { type = "execution", executionId = execution.ExecutionId, orderId = execution.Order == null ? null : execution.Order.OrderId, accountId = ExternalAccountId(candidate), instrument = execution.Instrument.FullName, side, quantity = execution.Quantity, price = execution.Price, pointValue, commissionCents, commissionCurrency = CurrencyCode(candidate.Denomination.ToString()), currency, executedAt = execution.Time.ToUniversalTime().ToString("o") });
         }
         private sealed class OrderIdentity { public string Id { get; private set; } = Guid.NewGuid().ToString("N"); }
+        private static string CurrencyCode(string value)
+        {
+            switch (value)
+            {
+                case "UsDollar": return "USD";
+                case "Euro": return "EUR";
+                case "Pound": case "BritishPound": return "GBP";
+                case "Yen": case "JapaneseYen": return "JPY";
+                case "AustralianDollar": return "AUD";
+                case "CanadianDollar": return "CAD";
+                case "SwissFranc": return "CHF";
+                case "NewZealandDollar": return "NZD";
+                case "HongKongDollar": return "HKD";
+                case "SingaporeDollar": return "SGD";
+                case "BrazilianReal": return "BRL";
+                case "ChineseYuan": return "CNY";
+                case "DanishKrone": return "DKK";
+                case "IndianRupee": return "INR";
+                case "MexicanPeso": return "MXN";
+                case "NorwegianKrone": return "NOK";
+                case "PolishZloty": return "PLN";
+                case "RussianRuble": return "RUB";
+                case "SwedishKrona": return "SEK";
+                case "SouthAfricanRand": return "ZAR";
+                case "TurkishLira": return "TRY";
+                default: return value != null && value.Length == 3 ? value.ToUpperInvariant() : null;
+            }
+        }
         private static bool IsTerminalOrder(OrderState state) { return state == OrderState.Filled || state == OrderState.Cancelled || state == OrderState.Rejected; }
         private void Enqueue(object data)
         {

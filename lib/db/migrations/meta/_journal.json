@@ -78,6 +78,13 @@
       "when": 1790607163948,
       "tag": "0010_add_equity_method",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790613447297,
+      "tag": "0011_execution_pnl_fields",
+      "breakpoints": true
     }
   ]
 }

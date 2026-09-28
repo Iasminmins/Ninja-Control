@@ -1,6 +1,7 @@
-import { and, count, desc, eq, gte, isNotNull, sql } from 'drizzle-orm'
+import { and, count, desc, eq, gte, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import { requireWorkspace } from '@/lib/accounts/server'
-import { strategies, strategyVersions, trades, tradingAccounts } from '@/lib/db/schema'
+import { strategies, strategyVersions, tradeExecutions, trades, tradingAccounts } from '@/lib/db/schema'
+import { buildClosedRoundTrips } from '@/lib/ninjatrader/round-trips'
 
 export type CompareType = 'account' | 'strategy'
 export type CompareMetrics = { sampleSize: number; wins: number; losses: number; netCents: number; winRate: number | null; profitFactor: number | null; expectancyCents: number | null }
@@ -42,7 +43,20 @@ export async function getComparatorData(type: CompareType, requestedA: string, r
     metricsFor(access.db, access.workspace.id, type, a.id, days),
     metricsFor(access.db, access.workspace.id, type, b.id, days),
   ])
-  return { type, days, choices, first: { entity: a, metrics: first }, second: { entity: b, metrics: second } }
+  let grossByAccount = new Map<string, { currency: string; sampleSize: number; grossPnlCents: number; wins: number; losses: number; feesCents: number | null; netPnlCents: number | null }[]>()
+  if (type === 'account') {
+    const executionRows = await access.db.select({ id: tradeExecutions.id, accountId: tradeExecutions.accountId, instrument: tradeExecutions.instrument, side: tradeExecutions.side, quantity: tradeExecutions.quantity, price: tradeExecutions.price, pointValue: tradeExecutions.pointValue, commissionCents: tradeExecutions.commissionCents, commissionCurrency: tradeExecutions.commissionCurrency, currency: tradeExecutions.currency, executedAt: tradeExecutions.executedAt })
+      .from(tradeExecutions).where(and(eq(tradeExecutions.workspaceId, access.workspace.id), eq(tradeExecutions.provider, 'NinjaTrader'), isNull(tradeExecutions.voidedAt), inArray(tradeExecutions.accountId, [...new Set([a.id, b.id])]))).orderBy(desc(tradeExecutions.executedAt)).limit(20_000)
+    const cycles = buildClosedRoundTrips(executionRows.map((row) => ({ ...row, price: Number(row.price), pointValue: row.pointValue === null ? null : Number(row.pointValue) }))).closed.filter((trip) => days <= 0 || trip.closedAt >= new Date(Date.now() - days * 86_400_000))
+    for (const accountId of [a.id, b.id]) {
+      const selected = cycles.filter((trip) => trip.accountId === accountId)
+      grossByAccount.set(accountId, [...new Set(selected.map((trip) => trip.currency ?? 'Moeda desconhecida'))].sort().map((currency) => {
+        const rows = selected.filter((trip) => (trip.currency ?? 'Moeda desconhecida') === currency)
+        return { currency, sampleSize: rows.length, grossPnlCents: rows.reduce((sum, trip) => sum + trip.grossPnlCents, 0), wins: rows.filter((trip) => trip.grossPnlCents > 0).length, losses: rows.filter((trip) => trip.grossPnlCents < 0).length, feesCents: rows.every((trip) => trip.feesCents !== null) ? rows.reduce((sum, trip) => sum + (trip.feesCents ?? 0), 0) : null, netPnlCents: rows.every((trip) => trip.netPnlCents !== null) ? rows.reduce((sum, trip) => sum + (trip.netPnlCents ?? 0), 0) : null }
+      }))
+    }
+  }
+  return { type, days, choices, first: { entity: a, metrics: first, grossMetrics: grossByAccount.get(a.id) ?? [] }, second: { entity: b, metrics: second, grossMetrics: grossByAccount.get(b.id) ?? [] } }
 }
 
 export type ComparatorData = NonNullable<Awaited<ReturnType<typeof getComparatorData>>>

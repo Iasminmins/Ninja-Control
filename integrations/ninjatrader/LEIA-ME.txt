@@ -38,11 +38,23 @@ destino, pois as bibliotecas da plataforma não acompanham este pacote.
 DADOS AO VIVO
 
 Ao iniciar, o AddOn captura saldo e métricas reportados pelo NinjaTrader, posições
-abertas, ordens ativas e execuções disponíveis na sessão. Depois acompanha
-alterações e envia novos snapshots a cada dois minutos. A tela informa se os
-dados estão atuais, atrasados ou offline. Confira a janela Output do NinjaTrader
-para ver erros HTTP de token, vínculo ou servidor. O histórico fica limitado aos
-dados que a sessão atual do NinjaTrader mantém disponíveis.
+abertas, ordens ativas e execuções disponíveis na sessão. Depois envia snapshots
+de conta quando há mudanças (limitados a um por conta a cada cinco segundos) e
+força uma captura completa a cada dois minutos. Os fills incluem valor do ponto,
+moeda do instrumento, horário, comissão e moeda da conta quando disponíveis.
+
+O Ninja Control mostra separadamente P&L bruto realizado pelo provedor, P&L
+realizado, P&L em aberto, saldo, equity e drawdown observado do histórico. Os
+gráficos de resultado agrupam fills FIFO por conta e instrumento; taxas ficam
+separadas e o líquido calculado só aparece quando as taxas de todos os fills são
+conhecidas e estiverem na mesma moeda do resultado bruto. O drawdown observado usa o maior equity recebido no histórico e não
+substitui regras de trailing drawdown da prop firm.
+
+A tela separa o conector (último evento recebido pelo servidor) da atualidade do
+horário fornecido pelo NinjaTrader. Confira a janela Output e o relógio do PC se
+o conector estiver online, mas os dados aparecerem atrasados. O histórico de
+execuções fica limitado aos dados que a sessão atual do NinjaTrader mantém
+disponíveis; não há backfill automático de sessões históricas.
 
 Para atualizar uma instalação já rodando: substitua o código pelo
 NinjaControlAddOn.cs deste pacote, compile no NinjaScript Editor e inicie a

@@ -2,6 +2,7 @@ import { Activity, CircleDollarSign, Target, TrendingDown, TrendingUp } from 'lu
 import { EmptyState, MetricTile, Panel, SectionHeading } from '@/components/workspace/primitives'
 import type { AnalyticsSnapshot } from '@/lib/analytics/server'
 import { formatCurrency, formatDate } from '@/lib/format'
+import { NinjaTraderGrossCharts } from './ninjatrader-gross-charts'
 
 const selectClass = 'h-10 rounded-lg border border-white/10 bg-[#0b0d0f] px-3 text-xs text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b9f227]'
 const money = (cents: number | null) => cents === null ? '—' : formatCurrency(cents / 100)
@@ -9,8 +10,6 @@ const money = (cents: number | null) => cents === null ? '—' : formatCurrency(
 export function PersistedAnalyticsScreen({ snapshot, page }: { snapshot: AnalyticsSnapshot | null; page: 'analytics' | 'performance' }) {
   if (!snapshot) return <main className="mx-auto max-w-[1500px] px-5 py-10"><EmptyState title="Workspace indisponível" description="Entre novamente para acessar seus dados." /></main>
   const { filters, summary, daily } = snapshot
-  let cumulative = 0
-  const curve = daily.map((point) => { cumulative += point.netCents; return { ...point, cumulative } })
   const maxMagnitude = Math.max(1, ...daily.map((point) => Math.abs(point.netCents)))
   const title = page === 'performance' ? 'Desempenho' : 'Analytics'
   return <main className="mx-auto max-w-[1500px] px-5 py-7 sm:px-8 sm:py-9 xl:px-10">
@@ -24,15 +23,16 @@ export function PersistedAnalyticsScreen({ snapshot, page }: { snapshot: Analyti
       <button className="secondary-button min-h-10 self-end" type="submit">Aplicar filtros</button>
     </form>
     <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <MetricTile label="P&L líquido" value={money(summary.netCents)} icon={CircleDollarSign} tone={summary.netCents < 0 ? 'negative' : 'positive'} note={`${summary.tradeCount} trades fechados`} />
+      <MetricTile label="P&L líquido" value={summary.tradeCount ? money(summary.netCents) : 'Sem amostra'} icon={CircleDollarSign} tone={summary.netCents < 0 ? 'negative' : 'positive'} note={`${summary.tradeCount} trades com resultado líquido confirmado`} />
       <MetricTile label="Taxa positiva" value={summary.winRate === null ? '—' : `${summary.winRate.toFixed(1).replace('.', ',')}%`} icon={Target} note={`${summary.wins} positivos · ${summary.losses} negativos`} />
       <MetricTile label="Profit factor" value={summary.profitFactor === null ? '—' : summary.profitFactor.toFixed(2).replace('.', ',')} icon={Activity} note="Lucro bruto ÷ perda bruta" />
       <MetricTile label="Expectativa por trade" value={money(summary.expectancyCents)} icon={TrendingUp} note="P&L líquido médio da amostra" />
       <MetricTile label="Ganho médio" value={money(summary.averageWinCents)} icon={TrendingUp} />
       <MetricTile label="Perda média" value={money(summary.averageLossCents)} icon={TrendingDown} />
       <MetricTile label="R:R médio recebido" value={summary.averageRiskReward === null ? '—' : summary.averageRiskReward.toFixed(2).replace('.', ',')} icon={Target} note="Depende do contexto enviado pelo conector" />
-      <MetricTile label="Drawdown máximo observado" value={money(summary.maxObservedDrawdownCents)} icon={TrendingDown} note={snapshot.drawdownIsWorkspaceWide ? 'Snapshot máximo em todas as contas e datas' : 'Snapshot máximo registrado para o workspace'} />
+      <MetricTile label="Drawdown observado" value={money(summary.maxObservedDrawdownCents)} icon={TrendingDown} note={snapshot.drawdownIsWorkspaceWide ? 'Maior pico a vale entre as contas no período' : 'Pico a vale da conta selecionada no período'} />
     </section>
+    <Panel className="mb-5 p-5 sm:p-6"><SectionHeading title="Resultado bruto das execuções NinjaTrader" description="Ciclos fechados calculados com fills e valor do ponto do instrumento. Não é misturado ao P&L líquido." /><div className="mt-4"><NinjaTraderGrossCharts series={snapshot.ninjaTraderGross.byCurrency} /></div>{snapshot.ninjaTraderGross.unavailableBecauseContextFilter && <p className="mt-3 text-[10px] text-zinc-500">Remova os filtros de Família Hunter e Setup para incluir execuções NinjaTrader, que não carregam esses campos.</p>}{snapshot.ninjaTraderGross.historyTruncated && <p className="mt-2 text-[10px] text-amber-200">A consulta atingiu o limite de execuções; este recorte pode estar incompleto.</p>}{snapshot.ninjaTraderGross.incompleteFillCount > 0 && <p className="mt-2 text-[10px] text-amber-200">{snapshot.ninjaTraderGross.incompleteFillCount} fills/ciclos sem dados suficientes foram excluídos do P&amp;L bruto.</p>}</Panel>
     <section className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
       <Panel className="p-5 sm:p-6"><SectionHeading title="P&L diário" description="Resultado líquido por data de fechamento, no horário de São Paulo." />{daily.length ? <div className="space-y-3">{daily.map((point) => <div key={point.day} className="grid grid-cols-[90px_1fr_100px] items-center gap-3"><span className="text-[10px] text-zinc-500">{formatDate(point.day)}</span><div className="h-2 overflow-hidden rounded-full bg-white/[0.06]"><div className={`h-full rounded-full ${point.netCents < 0 ? 'bg-rose-400' : 'bg-[#b9f227]'}`} style={{ width: `${Math.max(2, Math.abs(point.netCents) / maxMagnitude * 100)}%` }} /></div><span className={`text-right font-mono text-[10px] ${point.netCents < 0 ? 'text-rose-300' : 'text-zinc-300'}`}>{money(point.netCents)}</span></div>)}</div> : <EmptyState title="Sem trades no período" description="Os dados aparecerão após o conector enviar trades fechados." />}</Panel>
       <Panel className="p-5 sm:p-6"><SectionHeading title="Contexto dos trades" description="Médias calculadas quando o conector fornece esses campos." /><div className="grid grid-cols-2 gap-3"><div className="stat-tile"><p className="metric-label">MAE médio</p><p className="mt-2 text-sm font-semibold text-white">{money(summary.averageMaeCents)}</p></div><div className="stat-tile"><p className="metric-label">MFE médio</p><p className="mt-2 text-sm font-semibold text-white">{money(summary.averageMfeCents)}</p></div><div className="stat-tile col-span-2"><p className="metric-label">Fator de recuperação</p><p className="mt-2 text-sm font-semibold text-white">{summary.recoveryFactor === null ? '—' : summary.recoveryFactor.toFixed(2).replace('.', ',')}</p></div></div><p className="mt-4 text-[11px] leading-5 text-zinc-500">Drawdown só é calculado quando a integração envia snapshots. Não é estimado a partir de saldo inicial.</p></Panel>

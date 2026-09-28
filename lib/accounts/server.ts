@@ -58,7 +58,7 @@ export async function listWorkspaceAccounts(workspaceId: string) {
     accountStatus: account.status,
     connectionState: liveByAccount.get(account.id)?.freshness === 'online' ? 'connected' : account.connectionStatus === 'connected' ? 'connected' : 'not-configured',
     createdAt: account.createdAt.toISOString(),
-    lastSyncedAt: liveByAccount.get(account.id)?.snapshot?.capturedAt ?? null,
+    lastSyncedAt: liveByAccount.get(account.id)?.snapshot?.receivedAt ?? null,
     provenance: 'manual',
     liveState: liveByAccount.get(account.id) ?? null,
   }))
