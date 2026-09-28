@@ -3,9 +3,11 @@ import { auth } from '@/lib/auth/server'
 import { requireDatabase } from '@/lib/db'
 import { auditRecords, propFirmPlans, propFirms, tradingAccounts, workspaces } from '@/lib/db/schema'
 import { resolvePropFirm } from '@/lib/prop-firms/catalog'
+import { getNinjaTraderAccountState } from '@/lib/ninjatrader/server'
 import type { AccountKind, DemoAccount, PropAccountStatus } from '@/lib/demo/types'
 
-export type PersistedAccount = Omit<DemoAccount, 'provenance'> & { provenance: 'manual' }
+export type LiveTradingAccountState = Awaited<ReturnType<typeof getNinjaTraderAccountState>>[number]
+export type PersistedAccount = Omit<DemoAccount, 'provenance'> & { provenance: 'manual'; liveState: LiveTradingAccountState | null }
 
 export async function requireWorkspace() {
   const { data, error } = await auth.getSession()
@@ -34,6 +36,8 @@ export async function listWorkspaceAccounts(workspaceId: string) {
     .leftJoin(propFirms, eq(propFirmPlans.propFirmId, propFirms.id))
     .where(eq(tradingAccounts.workspaceId, workspaceId))
 
+  const liveAccounts = await getNinjaTraderAccountState(db, workspaceId)
+  const liveByAccount = new Map(liveAccounts.flatMap((state) => state.tradingAccountId ? [[state.tradingAccountId, state] as const] : []))
   return rows.map(({ account, plan, firm }): PersistedAccount => ({
     id: account.id,
     name: account.name,
@@ -52,10 +56,11 @@ export async function listWorkspaceAccounts(workspaceId: string) {
     drawdownBufferPercent: 0,
     lifecycle: account.status === 'archived' ? 'archived' : 'active',
     accountStatus: account.status,
-    connectionState: account.connectionStatus === 'connected' ? 'connected' : 'not-configured',
+    connectionState: liveByAccount.get(account.id)?.freshness === 'online' ? 'connected' : account.connectionStatus === 'connected' ? 'connected' : 'not-configured',
     createdAt: account.createdAt.toISOString(),
-    lastSyncedAt: null,
+    lastSyncedAt: liveByAccount.get(account.id)?.snapshot?.capturedAt ?? null,
     provenance: 'manual',
+    liveState: liveByAccount.get(account.id) ?? null,
   }))
 }
 

@@ -1,7 +1,8 @@
 import { and, eq } from 'drizzle-orm'
 import { NextResponse } from 'next/server'
 import { requireWorkspace } from '@/lib/accounts/server'
-import { auditRecords, integrationAccountMappings, integrationConnections, integrationPositions, tradingAccounts } from '@/lib/db/schema'
+import { auditRecords, integrationAccountMappings, integrationConnections, tradingAccounts } from '@/lib/db/schema'
+import { getNinjaTraderAccountState } from '@/lib/ninjatrader/server'
 
 export const dynamic = 'force-dynamic'
 const provider = 'ninjatrader-desktop'
@@ -11,12 +12,15 @@ export async function GET() {
   if (!access) return NextResponse.json({ error: 'Sessão necessária.' }, { status: 401 })
   const [connection] = await access.db.select({ id: integrationConnections.id }).from(integrationConnections).where(and(eq(integrationConnections.workspaceId, access.workspace.id), eq(integrationConnections.provider, provider))).limit(1)
   if (!connection) return NextResponse.json({ accounts: [], tradingAccounts: [] })
-  const [accounts, trading, positions] = await Promise.all([
+  const [accounts, trading, liveStates] = await Promise.all([
     access.db.select().from(integrationAccountMappings).where(and(eq(integrationAccountMappings.workspaceId, access.workspace.id), eq(integrationAccountMappings.connectionId, connection.id))),
     access.db.select({ id: tradingAccounts.id, name: tradingAccounts.name }).from(tradingAccounts).where(eq(tradingAccounts.workspaceId, access.workspace.id)),
-    access.db.select().from(integrationPositions).where(eq(integrationPositions.workspaceId, access.workspace.id)),
+    getNinjaTraderAccountState(access.db, access.workspace.id),
   ])
-  return NextResponse.json({ accounts: accounts.map((account) => ({ ...account, positions: positions.filter((position) => position.mappingId === account.id) })), tradingAccounts: trading })
+  return NextResponse.json({ accounts: accounts.map((account) => {
+    const live = liveStates.find((state) => state.mappingId === account.id)
+    return { ...account, positions: live?.positions ?? [], orders: live?.orders ?? [], recentExecutions: live?.recentExecutions ?? [], snapshot: live?.snapshot ?? null, freshness: live?.freshness ?? 'offline' }
+  }), tradingAccounts: trading }, { headers: { 'Cache-Control': 'no-store' } })
 }
 
 export async function PATCH(request: Request) {

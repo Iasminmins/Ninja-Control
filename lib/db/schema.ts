@@ -88,6 +88,9 @@ export const accountRiskSnapshots = pgTable('account_risk_snapshots', {
   dailyLossCents: integer('daily_loss_cents'),
   contractsOpen: integer('contracts_open'),
   exposureCents: integer('exposure_cents'),
+  providerValues: jsonb('provider_values').$type<Record<string, { valueCents: number; observed: boolean }>>().notNull().default({}),
+  currency: varchar('currency', { length: 12 }),
+  equityMethod: varchar('equity_method', { length: 48 }),
   source: varchar('source', { length: 80 }).notNull(),
   createdAt: createdAt(),
 }, (table) => [index('account_risk_snapshot_time_idx').on(table.workspaceId, table.accountId, table.capturedAt)])
@@ -128,17 +131,29 @@ export const tradingOrders = pgTable('trading_orders', {
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
   accountId: uuid('account_id').notNull().references(() => tradingAccounts.id, { onDelete: 'restrict' }),
   externalId: text('external_id'),
+  providerOrderId: text('provider_order_id'),
   instrument: varchar('instrument', { length: 40 }).notNull(),
   side: orderSide('side').notNull(),
   quantity: integer('quantity').notNull(),
+  filledQuantity: integer('filled_quantity').notNull().default(0),
+  averageFillPrice: numeric('average_fill_price', { precision: 18, scale: 8, mode: 'number' }),
   status: orderStatus('status').notNull(),
+  providerStatus: varchar('provider_status', { length: 48 }),
+  orderType: varchar('order_type', { length: 40 }),
+  limitPrice: numeric('limit_price', { precision: 18, scale: 8, mode: 'number' }),
+  stopPrice: numeric('stop_price', { precision: 18, scale: 8, mode: 'number' }),
+  timeInForce: varchar('time_in_force', { length: 24 }),
+  ocoId: text('oco_id'),
+  isActive: boolean('is_active').notNull().default(true),
+  lastUpdatedAt: timestamp('last_updated_at', { withTimezone: true }),
+  lastSyncId: varchar('last_sync_id', { length: 80 }),
   submittedAt: timestamp('submitted_at', { withTimezone: true }).notNull(),
   origin: dataOrigin('origin').notNull(),
   provider: varchar('provider', { length: 80 }),
   createdAt: createdAt(),
 }, (table) => [
   index('trading_orders_workspace_time_idx').on(table.workspaceId, table.submittedAt),
-  uniqueIndex('trading_orders_provider_external_unique').on(table.workspaceId, table.provider, table.externalId),
+  uniqueIndex('trading_orders_provider_external_unique').on(table.accountId, table.provider, table.externalId),
 ])
 
 export const tradeExecutions = pgTable('trade_executions', {
@@ -147,8 +162,10 @@ export const tradeExecutions = pgTable('trade_executions', {
   accountId: uuid('account_id').notNull().references(() => tradingAccounts.id, { onDelete: 'restrict' }),
   orderId: uuid('order_id').references(() => tradingOrders.id, { onDelete: 'set null' }),
   externalId: text('external_id'),
+  providerOrderId: text('provider_order_id'),
+  voidedAt: timestamp('voided_at', { withTimezone: true }),
   instrument: varchar('instrument', { length: 40 }).notNull(),
-  side: orderSide('side').notNull(),
+  side: orderSide('side'),
   quantity: integer('quantity').notNull(),
   price: numeric('price', { precision: 18, scale: 8, mode: 'number' }).notNull(),
   executedAt: timestamp('executed_at', { withTimezone: true }).notNull(),
@@ -157,7 +174,7 @@ export const tradeExecutions = pgTable('trade_executions', {
   createdAt: createdAt(),
 }, (table) => [
   index('trade_executions_workspace_time_idx').on(table.workspaceId, table.executedAt),
-  uniqueIndex('trade_executions_provider_external_unique').on(table.workspaceId, table.provider, table.externalId),
+  uniqueIndex('trade_executions_provider_external_unique').on(table.accountId, table.provider, table.externalId),
 ])
 
 export const trades = pgTable('trades', {
@@ -310,9 +327,24 @@ export const integrationPositions = pgTable('integration_positions', {
   quantity: integer('quantity').notNull(),
   averagePrice: numeric('average_price', { precision: 18, scale: 8, mode: 'number' }),
   unrealizedPnlCents: integer('unrealized_pnl_cents'),
+  lastSyncId: varchar('last_sync_id', { length: 80 }),
   capturedAt: timestamp('captured_at', { withTimezone: true }).notNull(),
   updatedAt: updatedAt(),
 }, (table) => [uniqueIndex('integration_positions_mapping_instrument_unique').on(table.mappingId, table.instrument)])
+
+export const integrationSyncBatches = pgTable('integration_sync_batches', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  mappingId: uuid('mapping_id').notNull().references(() => integrationAccountMappings.id, { onDelete: 'cascade' }),
+  syncId: varchar('sync_id', { length: 80 }).notNull(),
+  status: varchar('status', { length: 24 }).notNull().default('in_progress'),
+  startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+  completedAt: timestamp('completed_at', { withTimezone: true }),
+  positionCount: integer('position_count'),
+  orderCount: integer('order_count'),
+  executionCount: integer('execution_count'),
+  createdAt: createdAt(),
+}, (table) => [uniqueIndex('integration_sync_batch_mapping_sync_unique').on(table.mappingId, table.syncId)])
 
 export const alertRules = pgTable('alert_rules', {
   id: uuid('id').defaultRandom().primaryKey(),

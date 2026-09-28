@@ -1,0 +1,1 @@
+ALTER TABLE "trading_orders" ADD COLUMN "provider_order_id" text;

@@ -1,0 +1,2 @@
+DROP INDEX "trade_executions_provider_external_unique";--> statement-breakpoint
+CREATE UNIQUE INDEX "trade_executions_provider_external_unique" ON "trade_executions" USING btree ("account_id","provider","external_id");

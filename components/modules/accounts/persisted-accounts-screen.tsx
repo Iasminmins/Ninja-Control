@@ -1,13 +1,13 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { CircleDollarSign, Plus, Search, ShieldCheck, Wallet } from 'lucide-react'
 import { AccountForm } from './account-form'
 import { FirmLogo } from './firm-logo'
 import { EmptyState, MetricTile, PageFrame, Panel, PrimaryButton, SecondaryButton, SectionHeading, StatusPill } from '@/components/workspace/primitives'
 import type { PersistedAccount } from '@/lib/accounts/server'
 import type { AccountLifecycle, DemoAccount } from '@/lib/demo/types'
-import { formatCurrency } from '@/lib/format'
+import { formatCurrency, formatDateTime } from '@/lib/format'
 
 export function PersistedAccountsScreen({ initialAccounts, loadError }: { initialAccounts: PersistedAccount[]; loadError?: string }) {
   const [accounts, setAccounts] = useState(initialAccounts)
@@ -19,6 +19,25 @@ export function PersistedAccountsScreen({ initialAccounts, loadError }: { initia
   const [pending, setPending] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    const refresh = async () => {
+      if (document.visibilityState !== 'visible') return
+      const response = await fetch('/api/integrations/ninjatrader-desktop/state', { cache: 'no-store' }).catch(() => null)
+      if (!response?.ok) return
+      const data = await response.json().catch(() => ({})) as { accounts?: NonNullable<PersistedAccount['liveState']>[] }
+      if (!active || !data.accounts) return
+      const byAccount = new Map(data.accounts.flatMap((state) => state.tradingAccountId ? [[state.tradingAccountId, state] as const] : []))
+      setAccounts((current) => current.map((account) => {
+        const liveState = byAccount.get(account.id) ?? null
+        return { ...account, liveState, lastSyncedAt: liveState?.snapshot?.capturedAt ?? null, connectionState: liveState?.freshness === 'online' ? 'connected' : account.connectionState }
+      }))
+    }
+    void refresh()
+    const timer = window.setInterval(() => void refresh(), 5000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [])
 
   const firms = [...new Set(accounts.map((account) => account.firm))].sort()
   const filtered = useMemo(() => accounts.filter((account) => {
@@ -98,10 +117,11 @@ export function PersistedAccountsScreen({ initialAccounts, loadError }: { initia
       </div>
       {filtered.length === 0 ? <EmptyState title={accounts.length ? 'Nenhuma conta encontrada' : 'Seu portfólio começa aqui'} description={accounts.length ? 'Ajuste os filtros ou pesquise por outra prop firm.' : 'Cadastre uma conta; saldos e performance ficam pendentes até conectar uma fonte de operações.'} /> : <div className="grid gap-3 xl:grid-cols-2">
         {filtered.map((account) => <article key={account.id} className="rounded-xl border border-white/[0.07] bg-white/[0.015] p-4 sm:p-5">
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-3"><div className="flex items-center gap-3"><FirmLogo firm={account.firm} customLogoUrl={account.firmLogoUrl} /><div><h3 className="text-sm font-semibold text-white">{account.name}</h3><p className="mt-1 text-[10px] tracking-wide text-zinc-500">{account.firm} · {account.stage} · Cadastro manual</p></div></div><div className="flex items-center gap-2"><StatusPill tone={account.accountStatus === 'active' ? 'positive' : account.accountStatus === 'breached' ? 'danger' : account.accountStatus === 'paused' ? 'warning' : 'neutral'}>{(account.accountStatus ?? 'active').toUpperCase()}</StatusPill><StatusPill tone="warning">INTEGRAÇÃO PENDENTE</StatusPill></div></div>
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3"><div className="flex items-center gap-3"><FirmLogo firm={account.firm} customLogoUrl={account.firmLogoUrl} /><div><h3 className="text-sm font-semibold text-white">{account.name}</h3><p className="mt-1 text-[10px] tracking-wide text-zinc-500">{account.firm} · {account.stage} · Cadastro manual</p></div></div><div className="flex items-center gap-2"><StatusPill tone={account.accountStatus === 'active' ? 'positive' : account.accountStatus === 'breached' ? 'danger' : account.accountStatus === 'paused' ? 'warning' : 'neutral'}>{(account.accountStatus ?? 'active').toUpperCase()}</StatusPill>{account.liveState ? <StatusPill tone={account.liveState.freshness === 'online' ? 'positive' : account.liveState.freshness === 'stale' ? 'warning' : 'danger'}>{account.liveState.freshness === 'online' ? 'DADOS ATUAIS' : account.liveState.freshness === 'stale' ? 'DADOS ATRASADOS' : 'OFFLINE'}</StatusPill> : <StatusPill tone="warning">SEM DADOS DO NINJATRADER</StatusPill>}</div></div>
+          {account.liveState?.snapshot && <div className="mb-4 rounded-lg border border-emerald-300/10 bg-emerald-300/[0.025] p-3"><div className="grid grid-cols-2 gap-3 sm:grid-cols-4"><div><p className="metric-label">Equity observada</p><p className="mt-1 text-sm font-semibold text-white">{formatCurrency(account.liveState.snapshot.equityCents == null ? null : account.liveState.snapshot.equityCents / 100)}</p></div><div><p className="metric-label">Saldo</p><p className="mt-1 text-sm font-semibold text-white">{formatCurrency(account.liveState.snapshot.balanceCents == null ? null : account.liveState.snapshot.balanceCents / 100)}</p></div><div><p className="metric-label">Posições abertas</p><p className="mt-1 text-sm font-semibold text-white">{account.liveState.positions.length}</p></div><div><p className="metric-label">Ordens trabalhando</p><p className="mt-1 text-sm font-semibold text-white">{account.liveState.orders.length}</p></div></div><p className="mt-3 text-[10px] text-zinc-500">Origem: {account.liveState.snapshot.source} · snapshot {formatDateTime(account.liveState.snapshot.capturedAt)} · conta vista {formatDateTime(account.liveState.lastSeenAt)}</p>{account.liveState.positions.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{account.liveState.positions.map((position) => <span key={position.instrument} className="rounded-md bg-white/[0.04] px-2 py-1 text-[10px] text-zinc-300">{position.instrument}: {position.quantity > 0 ? 'LONG' : 'SHORT'} {Math.abs(position.quantity)} · médio {position.averagePrice ?? '—'} · P&amp;L aberto {position.unrealizedPnlCents == null ? '—' : formatCurrency(position.unrealizedPnlCents / 100)}</span>)}</div>}{account.liveState.orders.length > 0 && <div className="mt-3 overflow-x-auto"><table className="w-full text-left"><thead><tr className="border-b border-white/[0.06] text-[9px] uppercase tracking-wide text-zinc-600"><th className="py-2 pr-3">Ordem ativa</th><th className="py-2 pr-3">Tipo</th><th className="py-2 pr-3">Estado</th><th className="py-2 text-right">Executada / restante</th></tr></thead><tbody>{account.liveState.orders.map((order) => <tr key={order.id} className="border-b border-white/[0.04] last:border-0"><td className="py-2 pr-3 text-[10px] text-zinc-300">{order.instrument} · {order.side.toUpperCase()}</td><td className="py-2 pr-3 text-[10px] text-zinc-500">{order.orderType ?? '—'}{order.limitPrice != null ? ` · LMT ${order.limitPrice}` : ''}{order.stopPrice != null ? ` · STP ${order.stopPrice}` : ''}</td><td className="py-2 pr-3 text-[10px] text-zinc-300">{order.providerStatus ?? order.status}</td><td className="py-2 text-right text-[10px] text-zinc-400">{order.filledQuantity} / {order.remainingQuantity}</td></tr>)}</tbody></table></div>}</div>}
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4"><div><p className="metric-label">Capital inicial</p><p className="mt-1 text-sm font-semibold text-white">{formatCurrency(account.startingCapital)}</p></div><div><p className="metric-label">Profit target</p><p className="mt-1 text-sm font-semibold text-white">{account.profitTarget ? formatCurrency(account.profitTarget) : 'Não informado'}</p></div><div><p className="metric-label">Limite diário</p><p className="mt-1 text-sm font-semibold text-white">{account.dailyLossLimit > 0 ? formatCurrency(account.dailyLossLimit) : 'Não informado'}</p></div><div><p className="metric-label">Drawdown máximo</p><p className="mt-1 text-sm font-semibold text-white">{account.trailingDrawdownLimit > 0 ? formatCurrency(account.trailingDrawdownLimit) : 'Não informado'}</p></div></div>
           <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4"><div><p className="metric-label">Consistência</p><p className="mt-1 text-xs text-zinc-300">{account.consistencyPercent == null ? 'Não informada' : `${account.consistencyPercent}%`}</p></div><div><p className="metric-label">Dias mínimos</p><p className="mt-1 text-xs text-zinc-300">{account.minimumTradingDays ?? 'Não informados'}</p></div><div><p className="metric-label">Máx. contratos</p><p className="mt-1 text-xs text-zinc-300">{account.maximumContracts ?? 'Não informado'}</p></div><div><p className="metric-label">Outras regras</p><p className="mt-1 line-clamp-2 text-xs text-zinc-300">{account.additionalRules || 'Não informadas'}</p></div></div>
-          <p className="mt-4 border-t border-white/[0.06] pt-3 text-[10px] text-zinc-500">P&amp;L, buffer, payout elegível e status de execução serão calculados com dados conectados; não há valores simulados nesta conta.</p>
+          <p className="mt-4 border-t border-white/[0.06] pt-3 text-[10px] text-zinc-500">P&amp;L diário, buffer e payout exigem histórico completo e regras da prop firm; ficam separados dos valores atuais enviados pelo NinjaTrader.</p>
           <div className="mt-3 flex flex-wrap justify-end gap-2"><label className="sr-only" htmlFor={`account-status-${account.id}`}>Status operacional de {account.name}</label><select id={`account-status-${account.id}`} className={inputClass} aria-label={`Status operacional de ${account.name}`} value={account.accountStatus ?? 'active'} disabled={pending || account.lifecycle === 'archived'} onChange={(event) => void changeStatus(account, event.target.value as 'active' | 'paused' | 'breached')}><option value="active">Ativa</option><option value="paused">Pausada</option><option value="breached">Breached</option><option value="archived">Arquivada</option></select><SecondaryButton className="h-8 px-2.5" onClick={() => { setError(''); setFormAccount({ ...account, provenance: 'demo', firmLogoUrl: account.firmLogoUrl?.startsWith('https://') ? account.firmLogoUrl : undefined }) }}>Editar</SecondaryButton><SecondaryButton className="h-8 px-2.5" onClick={() => void toggleArchive(account)}>{account.lifecycle === 'active' ? 'Arquivar' : 'Reativar'}</SecondaryButton></div>
         </article>)}
       </div>}

@@ -1,0 +1,1 @@
+ALTER TABLE "account_risk_snapshots" ADD COLUMN "equity_method" varchar(48);

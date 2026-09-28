@@ -9,8 +9,8 @@ INSTALACAO EM QUALQUER PC WINDOWS COM NINJATRADER 8 DESKTOP
    NinjaControlAddOn.cs no editor. Compile pelo próprio NinjaTrader.
 4. No Control Center, abra New > Ninja Control - Iniciar sincronização
    somente leitura.
-5. Informe o endpoint HTTPS e o token do workspace. Selecione uma conta
-   na lista e confira o modo: LIVE · CONTA REAL ou SIM · DEMONSTRAÇÃO.
+5. Informe o endpoint HTTPS e o token do workspace. Marque uma ou mais
+   contas na lista e confira o modo: LIVE · CONTA REAL ou SIM · DEMONSTRAÇÃO.
 6. No Ninja Control, associe a conta descoberta à conta correspondente.
 
 SEGURANCA
@@ -22,6 +22,8 @@ SEGURANCA
 - O arquivo de configurações fica em Documentos\NinjaTrader 8\NinjaControl.
 - Cada instalação tem um identificador local; nomes iguais de contas em PCs
   diferentes aparecem separadamente para que você vincule cada uma.
+- Todas as contas marcadas sincronizam simultaneamente; as escolhas ficam salvas
+  neste usuário do Windows.
 - A integração é somente leitura: não envia, altera, cancela ou liquida ordens.
 - Use somente credencial do workspace e mantenha-a privada.
 
@@ -32,3 +34,17 @@ ARQUIVOS
 
 A compilação do NinjaScript deve ocorrer no NinjaTrader instalado no PC de
 destino, pois as bibliotecas da plataforma não acompanham este pacote.
+
+DADOS AO VIVO
+
+Ao iniciar, o AddOn captura saldo e métricas reportados pelo NinjaTrader, posições
+abertas, ordens ativas e execuções disponíveis na sessão. Depois acompanha
+alterações e envia novos snapshots a cada dois minutos. A tela informa se os
+dados estão atuais, atrasados ou offline. Confira a janela Output do NinjaTrader
+para ver erros HTTP de token, vínculo ou servidor. O histórico fica limitado aos
+dados que a sessão atual do NinjaTrader mantém disponíveis.
+
+Para atualizar uma instalação já rodando: substitua o código pelo
+NinjaControlAddOn.cs deste pacote, compile no NinjaScript Editor e inicie a
+sincronização novamente pelo Control Center. A instalação anterior não recebe
+o código novo automaticamente.

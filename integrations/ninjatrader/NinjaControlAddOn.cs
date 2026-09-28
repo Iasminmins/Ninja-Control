@@ -8,7 +8,9 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.IO;
-using System.Security.Cryptography;
+using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
+using System.Collections.Generic;
 using System.Windows.Controls;
 using NinjaTrader.Cbi;
 using NinjaTrader.Gui;
@@ -25,9 +27,32 @@ namespace NinjaTrader.NinjaScript.AddOns
         private const int QueueLimit = 1000;
 
         private static readonly HttpClient Client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+
+        // Call Windows DPAPI directly because some NinjaScript installs do not
+        // include the managed DPAPI assembly in their compiler references.
+        [StructLayout(LayoutKind.Sequential)]
+        private struct DataBlob
+        {
+            public int Length;
+            public IntPtr Data;
+        }
+
+        [DllImport("crypt32.dll", SetLastError = true, CharSet = CharSet.Unicode, ExactSpelling = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool CryptProtectData(ref DataBlob input, string description, IntPtr entropy, IntPtr reserved, IntPtr prompt, int flags, ref DataBlob output);
+
+        [DllImport("crypt32.dll", SetLastError = true, CharSet = CharSet.Unicode, ExactSpelling = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool CryptUnprotectData(ref DataBlob input, IntPtr description, IntPtr entropy, IntPtr reserved, IntPtr prompt, int flags, ref DataBlob output);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr LocalFree(IntPtr memory);
+
         private readonly ConcurrentQueue<string> queue = new ConcurrentQueue<string>();
         private readonly SemaphoreSlim sender = new SemaphoreSlim(1, 1);
-        private Account account;
+        private readonly ConcurrentDictionary<string, Account> accounts = new ConcurrentDictionary<string, Account>();
+        private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, double>> observedAccountValues = new ConcurrentDictionary<string, ConcurrentDictionary<string, double>>();
+        private readonly ConditionalWeakTable<Order, OrderIdentity> orderIdentities = new ConditionalWeakTable<Order, OrderIdentity>();
         private Timer flushTimer;
         private Timer heartbeatTimer;
         private NTMenuItem newMenu;
@@ -35,10 +60,16 @@ namespace NinjaTrader.NinjaScript.AddOns
         private ControlCenter controlCenter;
         private string endpoint = DefaultEndpoint;
         private string token = String.Empty;
-        private string accountName = String.Empty;
+        private string[] accountNames = new string[0];
         private string installationId = Guid.NewGuid().ToString("N");
         private int queued;
-        private string ExternalAccountId { get { return installationId + ":" + (account == null ? accountName : account.Name); } }
+        private int lastReportedHttpStatus;
+        private DateTime lastReportedHttpErrorUtc = DateTime.MinValue;
+
+        private string ExternalAccountId(Account candidate)
+        {
+            return installationId + ":" + candidate.Name;
+        }
 
         protected override void OnStateChange()
         {
@@ -79,18 +110,30 @@ namespace NinjaTrader.NinjaScript.AddOns
             LoadSettings();
             var endpointBox = new TextBox { Text = endpoint, MinWidth = 420, Margin = new Thickness(0, 4, 0, 12) };
             var tokenBox = new PasswordBox { Password = token, MinWidth = 420, Margin = new Thickness(0, 4, 0, 12) };
-            var accountBox = new ComboBox { MinWidth = 420, Margin = new Thickness(0, 4, 0, 12), IsEditable = false, DisplayMemberPath = "DisplayName", SelectedValuePath = "Name" };
+            var accountList = new StackPanel();
+            var accountScroll = new ScrollViewer { Content = accountList, Height = 104, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(0, 4, 0, 12) };
+            var availableAccounts = new System.Collections.Generic.List<AccountChoice>();
             lock (Account.All)
-                foreach (Account candidate in Account.All.Where(IsSupportedAccount)) accountBox.Items.Add(new AccountChoice { Name = candidate.Name, DisplayName = candidate.Name + " · " + GetAccountModeLabel(candidate) });
-            if (!String.IsNullOrWhiteSpace(accountName) && accountBox.Items.OfType<AccountChoice>().Any(choice => choice.Name == accountName)) accountBox.SelectedValue = accountName;
-            else if (accountBox.Items.Count > 0) accountBox.SelectedIndex = 0;
+                foreach (Account candidate in Account.All.Where(IsSupportedAccount)) availableAccounts.Add(new AccountChoice { Name = candidate.Name, DisplayName = candidate.Name + " · " + GetAccountModeLabel(candidate) });
+            string[] savedNames = accountNames ?? new string[0];
+            bool hasSavedSelection = availableAccounts.Any(choice => savedNames.Contains(choice.Name, StringComparer.OrdinalIgnoreCase));
+            foreach (AccountChoice choice in availableAccounts)
+            {
+                accountList.Children.Add(new CheckBox
+                {
+                    Content = choice.DisplayName,
+                    Tag = choice,
+                    IsChecked = hasSavedSelection ? savedNames.Contains(choice.Name, StringComparer.OrdinalIgnoreCase) : accountList.Children.Count == 0,
+                    Margin = new Thickness(2, 3, 2, 3)
+                });
+            }
 
             var saveButton = new Button { Content = "Salvar e iniciar sincronização somente leitura", Padding = new Thickness(12, 8, 12, 8), HorizontalAlignment = HorizontalAlignment.Left, IsDefault = true };
             var content = new StackPanel { Margin = new Thickness(20), Width = 480 };
             content.Children.Add(new TextBlock { Text = "Ninja Control · Conexão somente leitura", FontSize = 17, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 16) });
             content.Children.Add(new TextBlock { Text = "Endpoint HTTPS" }); content.Children.Add(endpointBox);
             content.Children.Add(new TextBlock { Text = "Token do workspace (protegido no Windows deste usuário)" }); content.Children.Add(tokenBox);
-            content.Children.Add(new TextBlock { Text = "Conta NinjaTrader" }); content.Children.Add(accountBox);
+            content.Children.Add(new TextBlock { Text = "Contas NinjaTrader (selecione uma ou mais)" }); content.Children.Add(accountScroll);
             content.Children.Add(new TextBlock { Text = "Contas LIVE usam dinheiro real. A sincronização é somente leitura e não envia nem altera ordens.", TextWrapping = TextWrapping.Wrap, Opacity = 0.82, Margin = new Thickness(0, 0, 0, 14) });
             content.Children.Add(saveButton);
             var dialog = new Window { Title = "Configurar Ninja Control", Content = content, SizeToContent = SizeToContent.WidthAndHeight, WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = controlCenter, ResizeMode = ResizeMode.NoResize };
@@ -101,13 +144,17 @@ namespace NinjaTrader.NinjaScript.AddOns
                 {
                     MessageBox.Show(dialog, "Informe um endpoint HTTPS válido.", "Ninja Control", MessageBoxButton.OK, MessageBoxImage.Warning); return;
                 }
-                if (String.IsNullOrWhiteSpace(tokenBox.Password) || accountBox.SelectedValue == null)
+                string[] selectedNames = accountList.Children.OfType<CheckBox>()
+                    .Where(checkBox => checkBox.IsChecked == true)
+                    .Select(checkBox => ((AccountChoice)checkBox.Tag).Name)
+                    .ToArray();
+                if (String.IsNullOrWhiteSpace(tokenBox.Password) || selectedNames.Length == 0)
                 {
-                    MessageBox.Show(dialog, "Informe o token e selecione uma conta.", "Ninja Control", MessageBoxButton.OK, MessageBoxImage.Warning); return;
+                    MessageBox.Show(dialog, "Informe o token e selecione ao menos uma conta.", "Ninja Control", MessageBoxButton.OK, MessageBoxImage.Warning); return;
                 }
                 endpoint = uri.ToString().TrimEnd('/');
                 token = tokenBox.Password.Trim();
-                accountName = accountBox.SelectedValue.ToString();
+                accountNames = selectedNames;
                 SaveSettings();
                 dialog.DialogResult = true;
             };
@@ -115,45 +162,84 @@ namespace NinjaTrader.NinjaScript.AddOns
         }
         private void StartConnector()
         {
-            if (account != null) return;
-            if (String.IsNullOrWhiteSpace(endpoint) || String.IsNullOrWhiteSpace(token) || String.IsNullOrWhiteSpace(accountName))
+            if (!accounts.IsEmpty) return;
+            if (String.IsNullOrWhiteSpace(endpoint) || String.IsNullOrWhiteSpace(token) || accountNames == null || accountNames.Length == 0)
             {
-                NinjaTrader.Code.Output.Process("Configure endpoint, token, and account from New > Ninja Control.", PrintTo.OutputTab1);
+                NinjaTrader.Code.Output.Process("Configure endpoint, token, and at least one account from New > Ninja Control.", PrintTo.OutputTab1);
                 return;
             }
+
+            var selectedAccounts = new System.Collections.Generic.List<Account>();
+            var missingAccounts = new System.Collections.Generic.List<string>();
             lock (Account.All)
-                account = Account.All.FirstOrDefault(a => a.Name == accountName && IsSupportedAccount(a));
-            if (account == null)
             {
-                NinjaTrader.Code.Output.Process("Configured account was not found in the available NinjaTrader connections. No account was attached.", PrintTo.OutputTab1);
+                foreach (string selectedName in accountNames)
+                {
+                    Account candidate = Account.All.FirstOrDefault(a => a.Name == selectedName && IsSupportedAccount(a));
+                    if (candidate == null) missingAccounts.Add(selectedName);
+                    else selectedAccounts.Add(candidate);
+                }
+            }
+            if (selectedAccounts.Count == 0)
+            {
+                NinjaTrader.Code.Output.Process("None of the selected NinjaTrader accounts is currently available. No account was attached.", PrintTo.OutputTab1);
                 return;
             }
-            account.AccountItemUpdate += OnAccountItemUpdate;
-            account.PositionUpdate += OnPositionUpdate;
-            account.OrderUpdate += OnOrderUpdate;
-            account.ExecutionUpdate += OnExecutionUpdate;
-            Enqueue(new { type = "account_discovered", accountId = ExternalAccountId, accountName = account.Name, accountMode = GetAccountMode(account) });
-            SendSnapshot();
-            lock (account.Positions)
-                foreach (Position position in account.Positions) EnqueuePosition(position);
+
+            foreach (Account candidate in selectedAccounts)
+            {
+                accounts[candidate.Name] = candidate;
+                string syncId = Guid.NewGuid().ToString("N");
+                candidate.AccountItemUpdate += OnAccountItemUpdate;
+                candidate.PositionUpdate += OnPositionUpdate;
+                candidate.OrderUpdate += OnOrderUpdate;
+                candidate.ExecutionUpdate += OnExecutionUpdate;
+                Enqueue(new { type = "account_discovered", accountId = ExternalAccountId(candidate), accountName = candidate.Name, accountMode = GetAccountMode(candidate) });
+                Enqueue(new { type = "sync_start", accountId = ExternalAccountId(candidate), syncId });
+                SendSnapshot(candidate, syncId);
+                int positionCount = 0;
+                lock (candidate.Positions)
+                    foreach (Position position in candidate.Positions)
+                        if (position.MarketPosition != MarketPosition.Flat && position.Quantity > 0) { EnqueuePosition(candidate, position, syncId); positionCount++; }
+                int orderCount = 0;
+                lock (candidate.Orders)
+                    foreach (Order order in candidate.Orders)
+                        if (order != null && !IsTerminalOrder(order.OrderState)) { EnqueueOrder(candidate, order, syncId); orderCount++; }
+                int executionCount = 0;
+                lock (candidate.Executions)
+                    foreach (Execution execution in candidate.Executions)
+                        if (execution != null) { EnqueueExecution(candidate, execution); executionCount++; }
+                Enqueue(new { type = "sync_complete", accountId = ExternalAccountId(candidate), syncId, positionCount, orderCount, executionCount });
+            }
             flushTimer = new Timer(_ => FlushQueue(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2));
-            heartbeatTimer = new Timer(_ => Enqueue(new { type = "account_discovered", accountId = ExternalAccountId, accountName = account.Name, accountMode = GetAccountMode(account) }), null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2));
-            NinjaTrader.Code.Output.Process("Ninja Control read-only sync started for " + account.Name + ".", PrintTo.OutputTab1);
+            heartbeatTimer = new Timer(_ =>
+            {
+                foreach (Account candidate in accounts.Values)
+                {
+                    Enqueue(new { type = "account_discovered", accountId = ExternalAccountId(candidate), accountName = candidate.Name, accountMode = GetAccountMode(candidate) });
+                    SendSnapshot(candidate);
+                }
+            }, null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2));
+            string connectedNames = String.Join(", ", selectedAccounts.Select(candidate => candidate.Name).ToArray());
+            NinjaTrader.Code.Output.Process("Ninja Control read-only sync started for " + connectedNames + ".", PrintTo.OutputTab1);
+            if (missingAccounts.Count > 0)
+                NinjaTrader.Code.Output.Process("Selected accounts not currently available: " + String.Join(", ", missingAccounts.ToArray()) + ".", PrintTo.OutputTab1);
         }
         private void StopConnector()
         {
-            if (account != null)
-            {
-                account.AccountItemUpdate -= OnAccountItemUpdate;
-                account.PositionUpdate -= OnPositionUpdate;
-                account.OrderUpdate -= OnOrderUpdate;
-                account.ExecutionUpdate -= OnExecutionUpdate;
-                account = null;
-            }
             if (flushTimer != null) flushTimer.Dispose();
             if (heartbeatTimer != null) heartbeatTimer.Dispose();
             flushTimer = null;
             heartbeatTimer = null;
+            foreach (Account candidate in accounts.Values)
+            {
+                candidate.AccountItemUpdate -= OnAccountItemUpdate;
+                candidate.PositionUpdate -= OnPositionUpdate;
+                candidate.OrderUpdate -= OnOrderUpdate;
+                candidate.ExecutionUpdate -= OnExecutionUpdate;
+            }
+            accounts.Clear();
+            observedAccountValues.Clear();
         }
 
         private static bool IsSupportedAccount(Account candidate)
@@ -190,10 +276,13 @@ namespace NinjaTrader.NinjaScript.AddOns
                 var saved = JsonConvert.DeserializeObject<ConnectorSettings>(File.ReadAllText(SettingsPath));
                 if (saved == null) return;
                 endpoint = String.IsNullOrWhiteSpace(saved.Endpoint) ? DefaultEndpoint : saved.Endpoint;
-                accountName = saved.AccountName ?? String.Empty;
+                if (saved.AccountNames != null && saved.AccountNames.Length > 0)
+                    accountNames = saved.AccountNames.Where(name => !String.IsNullOrWhiteSpace(name)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                else if (!String.IsNullOrWhiteSpace(saved.AccountName))
+                    accountNames = new[] { saved.AccountName };
                 installationId = String.IsNullOrWhiteSpace(saved.InstallationId) ? Guid.NewGuid().ToString("N") : saved.InstallationId;
                 if (!String.IsNullOrWhiteSpace(saved.ProtectedToken))
-                    token = Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(saved.ProtectedToken), null, DataProtectionScope.CurrentUser));
+                    token = Encoding.UTF8.GetString(UnprotectForCurrentUser(Convert.FromBase64String(saved.ProtectedToken)));
             }
             catch { token = String.Empty; }
         }
@@ -204,48 +293,130 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 string folder = Path.GetDirectoryName(SettingsPath);
                 Directory.CreateDirectory(folder);
-                var saved = new ConnectorSettings { Endpoint = endpoint, AccountName = accountName, InstallationId = installationId, ProtectedToken = Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(token), null, DataProtectionScope.CurrentUser)) };
+                var saved = new ConnectorSettings { Endpoint = endpoint, AccountNames = accountNames, AccountName = accountNames == null || accountNames.Length == 0 ? String.Empty : accountNames[0], InstallationId = installationId, ProtectedToken = Convert.ToBase64String(ProtectForCurrentUser(Encoding.UTF8.GetBytes(token))) };
                 File.WriteAllText(SettingsPath, JsonConvert.SerializeObject(saved, Formatting.Indented));
             }
             catch (Exception ex) { NinjaTrader.Code.Output.Process("Could not save encrypted connector settings: " + ex.Message, PrintTo.OutputTab1); }
         }
 
+        private static byte[] ProtectForCurrentUser(byte[] value)
+        {
+            return TransformWithDpapi(value, true);
+        }
+
+        private static byte[] UnprotectForCurrentUser(byte[] value)
+        {
+            return TransformWithDpapi(value, false);
+        }
+
+        private static byte[] TransformWithDpapi(byte[] value, bool protect)
+        {
+            DataBlob input = new DataBlob { Length = value.Length, Data = Marshal.AllocHGlobal(value.Length) };
+            DataBlob output = new DataBlob { Length = 0, Data = IntPtr.Zero };
+            try
+            {
+                Marshal.Copy(value, 0, input.Data, value.Length);
+                bool succeeded = protect
+                    ? CryptProtectData(ref input, "Ninja Control connector token", IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 1, ref output)
+                    : CryptUnprotectData(ref input, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 1, ref output);
+                if (!succeeded)
+                    throw new InvalidOperationException("Windows DPAPI failed (error " + Marshal.GetLastWin32Error() + ").");
+
+                byte[] result = new byte[output.Length];
+                Marshal.Copy(output.Data, result, 0, output.Length);
+                return result;
+            }
+            finally
+            {
+                if (input.Data != IntPtr.Zero) Marshal.FreeHGlobal(input.Data);
+                if (output.Data != IntPtr.Zero) LocalFree(output.Data);
+            }
+        }
+
         private class ConnectorSettings
         {
             public string Endpoint { get; set; }
+            public string[] AccountNames { get; set; }
             public string AccountName { get; set; }
             public string InstallationId { get; set; }
             public string ProtectedToken { get; set; }
         }
 
-        private void OnAccountItemUpdate(object sender, AccountItemEventArgs e) { SendSnapshot(); }
-        private void OnPositionUpdate(object sender, PositionEventArgs e) { if (e.Position != null) EnqueuePosition(e.Position); }
+        private void OnAccountItemUpdate(object sender, AccountItemEventArgs e)
+        {
+            Account candidate = sender as Account;
+            if (candidate != null && e != null)
+            {
+                ConcurrentDictionary<string, double> values = observedAccountValues.GetOrAdd(ExternalAccountId(candidate), _ => new ConcurrentDictionary<string, double>());
+                values[e.AccountItem.ToString()] = e.Value;
+            }
+            SendSnapshot(candidate);
+        }
+        private void OnPositionUpdate(object sender, PositionEventArgs e)
+        {
+            Account candidate = sender as Account;
+            if (candidate != null && e.Position != null) EnqueuePosition(candidate, e.Position, null);
+        }
         private void OnOrderUpdate(object sender, OrderEventArgs e)
         {
+            Account candidate = sender as Account;
             Order order = e.Order;
-            if (order == null) return;
-            Enqueue(new { type = "order", accountId = ExternalAccountId, orderId = order.OrderId ?? order.Name, instrument = order.Instrument.FullName, side = order.OrderAction == OrderAction.Buy || order.OrderAction == OrderAction.BuyToCover ? "buy" : "sell", quantity = Math.Max(1, order.Quantity), status = MapOrderStatus(order.OrderState) });
+            if (candidate == null || order == null) return;
+            EnqueueOrder(candidate, order, null);
         }
         private void OnExecutionUpdate(object sender, ExecutionEventArgs e)
         {
+            Account candidate = sender as Account;
             Execution execution = e.Execution;
-            if (execution == null) return;
-            OrderAction action = execution.Order == null ? OrderAction.Buy : execution.Order.OrderAction;
-            Enqueue(new { type = "execution", executionId = execution.ExecutionId, accountId = ExternalAccountId, instrument = execution.Instrument.FullName, side = action == OrderAction.Buy || action == OrderAction.BuyToCover ? "buy" : "sell", quantity = execution.Quantity, price = execution.Price });
+            if (candidate == null || execution == null) return;
+            bool present;
+            lock (candidate.Executions) present = candidate.Executions.Any(item => item != null && item.ExecutionId == execution.ExecutionId);
+            if (present) EnqueueExecution(candidate, execution);
+            else Enqueue(new { type = "execution_removed", executionId = execution.ExecutionId, accountId = ExternalAccountId(candidate) });
         }
 
-        private void SendSnapshot()
+        private void SendSnapshot(Account candidate, string syncId = null)
         {
-            if (account == null) return;
-            double cash = account.Get(AccountItem.CashValue, Currency.UsDollar);
-            double unrealized = account.Get(AccountItem.UnrealizedProfitLoss, Currency.UsDollar);
-            Enqueue(new { type = "account_snapshot", accountId = ExternalAccountId, balanceCents = ToCents(cash), equityCents = ToCents(cash + unrealized) });
+            if (candidate == null) return;
+            ConcurrentDictionary<string, double> observed = observedAccountValues.GetOrAdd(ExternalAccountId(candidate), _ => new ConcurrentDictionary<string, double>());
+            double cash;
+            if (!observed.TryGetValue(AccountItem.CashValue.ToString(), out cash)) cash = candidate.Get(AccountItem.CashValue, candidate.Denomination);
+            double unrealized;
+            if (!observed.TryGetValue(AccountItem.UnrealizedProfitLoss.ToString(), out unrealized)) unrealized = candidate.Get(AccountItem.UnrealizedProfitLoss, candidate.Denomination);
+            var providerValues = new Dictionary<string, object>();
+            AccountItem[] items = new[] { AccountItem.BuyingPower, AccountItem.CashValue, AccountItem.Commission, AccountItem.ExcessIntradayMargin, AccountItem.ExcessInitialMargin, AccountItem.ExcessMaintenanceMargin, AccountItem.ExcessPositionMargin, AccountItem.Fee, AccountItem.GrossRealizedProfitLoss, AccountItem.InitialMargin, AccountItem.IntradayMargin, AccountItem.LongOptionValue, AccountItem.LookAheadMaintenanceMargin, AccountItem.LongStockValue, AccountItem.MaintenanceMargin, AccountItem.NetLiquidation, AccountItem.PositionMargin, AccountItem.RealizedProfitLoss, AccountItem.ShortOptionValue, AccountItem.ShortStockValue, AccountItem.SodCashValue, AccountItem.SodLiquidatingValue, AccountItem.UnrealizedProfitLoss, AccountItem.TotalCashBalance };
+            foreach (AccountItem item in items)
+            {
+                double value;
+                bool wasObserved = observed.TryGetValue(item.ToString(), out value);
+                try { if (!wasObserved) value = candidate.Get(item, candidate.Denomination); }
+                catch { continue; }
+                if (Double.IsNaN(value) || Double.IsInfinity(value)) continue;
+                providerValues[item.ToString()] = new { valueCents = ToCents(value), observed = wasObserved };
+            }
+            double netLiquidation;
+            bool hasObservedNetLiquidation = observed.TryGetValue(AccountItem.NetLiquidation.ToString(), out netLiquidation);
+            int equityCents = ToCents(hasObservedNetLiquidation ? netLiquidation : cash + unrealized);
+            Enqueue(new { type = "account_snapshot", accountId = ExternalAccountId(candidate), balanceCents = ToCents(cash), equityCents, equityMethod = hasObservedNetLiquidation ? "net_liquidation_reported" : "cash_plus_unrealized_calculated", currency = candidate.Denomination.ToString(), providerValues, syncId });
         }
-        private void EnqueuePosition(Position position)
+        private void EnqueuePosition(Account candidate, Position position, string syncId)
         {
             int quantity = position.MarketPosition == MarketPosition.Long ? position.Quantity : position.MarketPosition == MarketPosition.Short ? -position.Quantity : 0;
-            Enqueue(new { type = "position_snapshot", accountId = ExternalAccountId, instrument = position.Instrument.FullName, quantity, averagePrice = position.AveragePrice, unrealizedPnlCents = ToCents(position.GetUnrealizedProfitLoss(PerformanceUnit.Currency)) });
+            Enqueue(new { type = "position_snapshot", accountId = ExternalAccountId(candidate), instrument = position.Instrument.FullName, quantity, averagePrice = position.AveragePrice, unrealizedPnlCents = ToCents(position.GetUnrealizedProfitLoss(PerformanceUnit.Currency)), syncId });
         }
+        private void EnqueueOrder(Account candidate, Order order, string syncId)
+        {
+            bool active = !IsTerminalOrder(order.OrderState);
+            Enqueue(new { type = "order", accountId = ExternalAccountId(candidate), orderId = orderIdentities.GetValue(order, _ => new OrderIdentity()).Id, providerOrderId = order.OrderId, instrument = order.Instrument.FullName, side = order.OrderAction == OrderAction.Buy || order.OrderAction == OrderAction.BuyToCover ? "buy" : "sell", quantity = Math.Max(1, order.Quantity), filledQuantity = Math.Max(0, order.Filled), averageFillPrice = order.AverageFillPrice, status = MapOrderStatus(order.OrderState), providerStatus = order.OrderState.ToString(), orderType = order.OrderType.ToString(), limitPrice = order.LimitPrice > 0 ? (double?)order.LimitPrice : null, stopPrice = order.StopPrice > 0 ? (double?)order.StopPrice : null, timeInForce = order.TimeInForce.ToString(), ocoId = order.Oco, isActive = active, syncId });
+        }
+        private void EnqueueExecution(Account candidate, Execution execution)
+        {
+            OrderAction? action = execution.Order == null ? (OrderAction?)null : execution.Order.OrderAction;
+            string side = !action.HasValue ? null : action.Value == OrderAction.Buy || action.Value == OrderAction.BuyToCover ? "buy" : "sell";
+            Enqueue(new { type = "execution", executionId = execution.ExecutionId, orderId = execution.Order == null ? null : execution.Order.OrderId, accountId = ExternalAccountId(candidate), instrument = execution.Instrument.FullName, side, quantity = execution.Quantity, price = execution.Price, executedAt = execution.Time.ToUniversalTime().ToString("o") });
+        }
+        private sealed class OrderIdentity { public string Id { get; private set; } = Guid.NewGuid().ToString("N"); }
+        private static bool IsTerminalOrder(OrderState state) { return state == OrderState.Filled || state == OrderState.Cancelled || state == OrderState.Rejected; }
         private void Enqueue(object data)
         {
             if (Interlocked.Increment(ref queued) > QueueLimit) { Interlocked.Decrement(ref queued); return; }
@@ -271,13 +442,42 @@ namespace NinjaTrader.NinjaScript.AddOns
                         request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
                         using (HttpResponseMessage response = await Client.SendAsync(request))
                         {
-                            if (!response.IsSuccessStatusCode) return;
+                            if (!response.IsSuccessStatusCode)
+                            {
+                                string responseText = await response.Content.ReadAsStringAsync();
+                                string code = "";
+                                try { code = (string)Newtonsoft.Json.Linq.JObject.Parse(responseText)["code"] ?? ""; } catch { }
+                                int status = (int)response.StatusCode;
+                                DateTime now = DateTime.UtcNow;
+                                if (status != lastReportedHttpStatus || now - lastReportedHttpErrorUtc >= TimeSpan.FromMinutes(1))
+                                {
+                                    lastReportedHttpStatus = status;
+                                    lastReportedHttpErrorUtc = now;
+                                    NinjaTrader.Code.Output.Process("Ninja Control event not accepted (HTTP " + status + (String.IsNullOrWhiteSpace(code) ? "" : ", " + code) + "). Check token, account link, and server response.", PrintTo.OutputTab1);
+                                }
+                                // Rotate rejected events so a pending link or malformed event for one
+                                // account cannot block other accounts in the shared queue.
+                                if (status >= 400 && status < 500)
+                                {
+                                    string rejectedPayload;
+                                    if (queue.TryDequeue(out rejectedPayload)) queue.Enqueue(rejectedPayload);
+                                }
+                                return;
+                            }
                         }
                     }
                     string sentPayload;
                     if (queue.TryDequeue(out sentPayload)) Interlocked.Decrement(ref queued);
                 }
-                catch { /* Keep the head item and retry on the next timer tick. */ }
+                catch
+                {
+                    DateTime now = DateTime.UtcNow;
+                    if (now - lastReportedHttpErrorUtc >= TimeSpan.FromMinutes(1))
+                    {
+                        lastReportedHttpErrorUtc = now;
+                        NinjaTrader.Code.Output.Process("Ninja Control could not reach the event endpoint. The queued event will be retried.", PrintTo.OutputTab1);
+                    }
+                }
             }
             finally { sender.Release(); }
         }
@@ -286,7 +486,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             switch (state)
             {
-                case OrderState.Accepted: case OrderState.Working: return "accepted";
+                case OrderState.Accepted: case OrderState.Working: case OrderState.Submitted: case OrderState.TriggerPending: case OrderState.ChangePending: case OrderState.ChangeSubmitted: case OrderState.CancelPending: case OrderState.CancelSubmitted: return "accepted";
                 case OrderState.PartFilled: return "partially_filled";
                 case OrderState.Filled: return "filled";
                 case OrderState.Cancelled: return "cancelled";
