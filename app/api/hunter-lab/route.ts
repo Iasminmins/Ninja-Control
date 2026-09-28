@@ -74,6 +74,50 @@ export async function POST(request: Request) {
   }
 }
 
+export async function DELETE(request: Request) {
+  try {
+    const access = await requireWorkspace()
+    if (!access) return NextResponse.json({ error: 'Sessão necessária.' }, { status: 401 })
+    const body: unknown = await request.json()
+    if (!isRecord(body)) return NextResponse.json({ error: 'Dados inválidos.' }, { status: 400 })
+    const id = clean(body.id, 50)
+
+    if (body.kind === 'version') {
+      const rows = await access.db.select({ version: strategyVersions, area: strategies.name })
+        .from(strategyVersions).innerJoin(strategies, eq(strategyVersions.strategyId, strategies.id))
+        .where(and(eq(strategyVersions.id, id), eq(strategies.workspaceId, access.workspace.id))).limit(1)
+      const existing = rows[0]
+      if (!existing) return NextResponse.json({ error: 'Versão não encontrada neste workspace.' }, { status: 404 })
+      const experiments = await access.db.select().from(strategyExperiments).where(eq(strategyExperiments.strategyVersionId, id))
+      const deleted = await access.db.delete(strategyVersions).where(eq(strategyVersions.id, id)).returning({ id: strategyVersions.id })
+      if (!deleted.length) return NextResponse.json({ error: 'A versão já foi removida. Recarregue a página.' }, { status: 409 })
+      await access.db.insert(auditRecords).values([
+        { workspaceId: access.workspace.id, actorId: access.user.id, action: 'hunter.version.deleted', entityType: 'strategy_version', entityId: id, before: { area: existing.area, version: existing.version.version, parameters: existing.version.parameters, notes: existing.version.notes }, after: null },
+        ...experiments.map((experiment) => ({ workspaceId: access.workspace.id, actorId: access.user.id, action: 'hunter.experiment.deleted_with_version', entityType: 'strategy_experiment', entityId: experiment.id, before: { name: experiment.name, status: experiment.status, metrics: experiment.metrics }, after: null })),
+      ])
+      return NextResponse.json({ deleted: true, deletedExperiments: experiments.length })
+    }
+
+    if (body.kind === 'experiment') {
+      const owned = await access.db.select({ experiment: strategyExperiments })
+        .from(strategyExperiments).innerJoin(strategyVersions, eq(strategyExperiments.strategyVersionId, strategyVersions.id))
+        .innerJoin(strategies, eq(strategyVersions.strategyId, strategies.id))
+        .where(and(eq(strategyExperiments.id, id), eq(strategies.workspaceId, access.workspace.id))).limit(1)
+      const experiment = owned[0]?.experiment
+      if (!experiment) return NextResponse.json({ error: 'Experimento não encontrado neste workspace.' }, { status: 404 })
+      const deleted = await access.db.delete(strategyExperiments).where(eq(strategyExperiments.id, id)).returning({ id: strategyExperiments.id })
+      if (!deleted.length) return NextResponse.json({ error: 'O experimento já foi removido. Recarregue a página.' }, { status: 409 })
+      await access.db.insert(auditRecords).values({ workspaceId: access.workspace.id, actorId: access.user.id, action: 'hunter.experiment.deleted', entityType: 'strategy_experiment', entityId: id, before: { name: experiment.name, status: experiment.status, metrics: experiment.metrics }, after: null })
+      return NextResponse.json({ deleted: true })
+    }
+
+    return NextResponse.json({ error: 'Tipo de registro inválido.' }, { status: 400 })
+  } catch (error) {
+    if (error instanceof SyntaxError) return NextResponse.json({ error: 'JSON inválido.' }, { status: 400 })
+    return NextResponse.json({ error: 'Não foi possível excluir o registro Hunter.' }, { status: 500 })
+  }
+}
+
 export async function PATCH(request: Request) {
   try {
     const access = await requireWorkspace()
