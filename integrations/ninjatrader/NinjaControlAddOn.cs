@@ -11,6 +11,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Windows.Controls;
 using NinjaTrader.Cbi;
 using NinjaTrader.Gui;
@@ -25,6 +26,8 @@ namespace NinjaTrader.NinjaScript.AddOns
     {
         private const string DefaultEndpoint = "https://ninja-control.vercel.app/api/integrations/ninjatrader-desktop/events";
         private const int QueueLimit = 1000;
+        private const int MarketSymbolLimit = 100;
+        private const int MarketSnapshotLimit = 2048;
 
         private static readonly HttpClient Client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
 
@@ -51,21 +54,34 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly ConcurrentQueue<string> queue = new ConcurrentQueue<string>();
         private readonly SemaphoreSlim sender = new SemaphoreSlim(1, 1);
         private readonly ConcurrentDictionary<string, Account> accounts = new ConcurrentDictionary<string, Account>();
+        private readonly ConcurrentDictionary<string, MarketData> marketSubscriptions = new ConcurrentDictionary<string, MarketData>();
+        private readonly ConcurrentDictionary<string, MarketQuoteState> marketQuotes = new ConcurrentDictionary<string, MarketQuoteState>();
+        private readonly ConcurrentDictionary<string, MarketInstrumentChoice> marketInstruments = new ConcurrentDictionary<string, MarketInstrumentChoice>();
         private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, double>> observedAccountValues = new ConcurrentDictionary<string, ConcurrentDictionary<string, double>>();
         private readonly ConcurrentDictionary<string, DateTime> lastSnapshotQueuedUtc = new ConcurrentDictionary<string, DateTime>();
         private readonly ConditionalWeakTable<Order, OrderIdentity> orderIdentities = new ConditionalWeakTable<Order, OrderIdentity>();
         private Timer flushTimer;
         private Timer heartbeatTimer;
+        private Timer marketFlushTimer;
         private NTMenuItem newMenu;
         private NTMenuItem connectorMenuItem;
         private ControlCenter controlCenter;
         private string endpoint = DefaultEndpoint;
         private string token = String.Empty;
         private string[] accountNames = new string[0];
+        private string[] marketSymbols = new string[0];
+        private string futureInstrument = String.Empty;
+        private string marketMetadataSource = String.Empty;
+        private string marketMetadataEffectiveFrom = String.Empty;
+        private bool marketDataEnabled;
         private string installationId = Guid.NewGuid().ToString("N");
         private int queued;
+        private int started;
+        private int marketDropped;
+        private readonly SemaphoreSlim marketSender = new SemaphoreSlim(1, 1);
         private int lastReportedHttpStatus;
         private DateTime lastReportedHttpErrorUtc = DateTime.MinValue;
+        private DateTime lastReportedMarketErrorUtc = DateTime.MinValue;
 
         private string ExternalAccountId(Account candidate)
         {
@@ -130,11 +146,22 @@ namespace NinjaTrader.NinjaScript.AddOns
             }
 
             var saveButton = new Button { Content = "Salvar e iniciar sincronização somente leitura", Padding = new Thickness(12, 8, 12, 8), HorizontalAlignment = HorizontalAlignment.Left, IsDefault = true };
-            var content = new StackPanel { Margin = new Thickness(20), Width = 480 };
+            var marketEnabledBox = new CheckBox { Content = "Ativar mapa de contexto (cotações Level I)", IsChecked = marketDataEnabled, Margin = new Thickness(2, 4, 2, 8) };
+            var marketSymbolsBox = new TextBox { Text = String.Join(",", marketSymbols ?? new string[0]), MinWidth = 420, Height = 66, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(0, 4, 0, 10) };
+            var futureInstrumentBox = new TextBox { Text = futureInstrument ?? String.Empty, MinWidth = 420, Margin = new Thickness(0, 4, 0, 12) };
+            var marketMetadataSourceBox = new TextBox { Text = marketMetadataSource ?? String.Empty, MinWidth = 420, Margin = new Thickness(0, 4, 0, 8) };
+            var marketMetadataDateBox = new TextBox { Text = marketMetadataEffectiveFrom ?? String.Empty, MinWidth = 420, Margin = new Thickness(0, 4, 0, 12) };
+            var content = new StackPanel { Margin = new Thickness(20), Width = 500 };
             content.Children.Add(new TextBlock { Text = "Ninja Control · Conexão somente leitura", FontSize = 17, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 16) });
             content.Children.Add(new TextBlock { Text = "Endpoint HTTPS" }); content.Children.Add(endpointBox);
             content.Children.Add(new TextBlock { Text = "Token do workspace (protegido no Windows deste usuário)" }); content.Children.Add(tokenBox);
             content.Children.Add(new TextBlock { Text = "Contas NinjaTrader (selecione uma ou mais)" }); content.Children.Add(accountScroll);
+            content.Children.Add(marketEnabledBox);
+            content.Children.Add(new TextBlock { Text = "Ações para o mapa: SYMBOL ou SYMBOL|SETOR|PESO%, separados por vírgula (até 100)" }); content.Children.Add(marketSymbolsBox);
+            content.Children.Add(new TextBlock { Text = "Contrato NQ ou MNQ exato, incluindo vencimento (ex.: NQ 12-26)" }); content.Children.Add(futureInstrumentBox);
+            content.Children.Add(new TextBlock { Text = "Fonte dos setores/pesos (opcional; informe apenas uma referência autorizada)" }); content.Children.Add(marketMetadataSourceBox);
+            content.Children.Add(new TextBlock { Text = "Data de vigência dos pesos (AAAA-MM-DD; opcional)" }); content.Children.Add(marketMetadataDateBox);
+            content.Children.Add(new TextBlock { Text = "Os símbolos e o contrato dependem da licença e da conexão de dados. Configure somente instrumentos autorizados. Cotações são enviadas a cada 5 s em fila separada das execuções.", TextWrapping = TextWrapping.Wrap, Opacity = 0.82, Margin = new Thickness(0, 0, 0, 14) });
             content.Children.Add(new TextBlock { Text = "Contas LIVE usam dinheiro real. A sincronização é somente leitura e não envia nem altera ordens.", TextWrapping = TextWrapping.Wrap, Opacity = 0.82, Margin = new Thickness(0, 0, 0, 14) });
             content.Children.Add(saveButton);
             var dialog = new Window { Title = "Configurar Ninja Control", Content = content, SizeToContent = SizeToContent.WidthAndHeight, WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = controlCenter, ResizeMode = ResizeMode.NoResize };
@@ -149,13 +176,27 @@ namespace NinjaTrader.NinjaScript.AddOns
                     .Where(checkBox => checkBox.IsChecked == true)
                     .Select(checkBox => ((AccountChoice)checkBox.Tag).Name)
                     .ToArray();
-                if (String.IsNullOrWhiteSpace(tokenBox.Password) || selectedNames.Length == 0)
+                string[] selectedMarketSymbols = marketSymbolsBox.Text.Split(new[] { ',', ';', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries).Select(value => value.Trim()).Where(value => value.Length <= 180 && value.Split('|')[0].Trim().Length <= 120).Distinct(StringComparer.OrdinalIgnoreCase).Take(MarketSymbolLimit).ToArray();
+                bool enableMarket = marketEnabledBox.IsChecked == true;
+                string selectedFuture = futureInstrumentBox.Text.Trim();
+                if (String.IsNullOrWhiteSpace(tokenBox.Password) || (enableMarket && (selectedMarketSymbols.Length == 0 || String.IsNullOrWhiteSpace(selectedFuture))) || (selectedNames.Length == 0 && !enableMarket))
                 {
-                    MessageBox.Show(dialog, "Informe o token e selecione ao menos uma conta.", "Ninja Control", MessageBoxButton.OK, MessageBoxImage.Warning); return;
+                    MessageBox.Show(dialog, "Informe o token e configure ao menos uma conta ou uma lista de mercado com o contrato NQ/MNQ exato.", "Ninja Control", MessageBoxButton.OK, MessageBoxImage.Warning); return;
+                }
+                bool includesReferenceMetadata = selectedMarketSymbols.Any(value => { string[] parts = value.Split('|'); return (parts.Length > 1 && !String.IsNullOrWhiteSpace(parts[1])) || (parts.Length > 2 && !String.IsNullOrWhiteSpace(parts[2])); });
+                DateTime referenceDate;
+                if (enableMarket && includesReferenceMetadata && (String.IsNullOrWhiteSpace(marketMetadataSourceBox.Text) || marketMetadataSourceBox.Text.Trim().Length > 120 || !DateTime.TryParseExact(marketMetadataDateBox.Text.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out referenceDate)))
+                {
+                    MessageBox.Show(dialog, "Para enviar setor ou peso, informe a fonte autorizada e a data de vigência no formato AAAA-MM-DD.", "Ninja Control", MessageBoxButton.OK, MessageBoxImage.Warning); return;
                 }
                 endpoint = uri.ToString().TrimEnd('/');
                 token = tokenBox.Password.Trim();
                 accountNames = selectedNames;
+                marketDataEnabled = enableMarket;
+                marketSymbols = selectedMarketSymbols;
+                futureInstrument = selectedFuture;
+                marketMetadataSource = marketMetadataSourceBox.Text.Trim();
+                marketMetadataEffectiveFrom = marketMetadataDateBox.Text.Trim();
                 SaveSettings();
                 dialog.DialogResult = true;
             };
@@ -163,10 +204,11 @@ namespace NinjaTrader.NinjaScript.AddOns
         }
         private void StartConnector()
         {
-            if (!accounts.IsEmpty) return;
-            if (String.IsNullOrWhiteSpace(endpoint) || String.IsNullOrWhiteSpace(token) || accountNames == null || accountNames.Length == 0)
+            if (Interlocked.CompareExchange(ref started, 1, 0) != 0) return;
+            if (String.IsNullOrWhiteSpace(endpoint) || String.IsNullOrWhiteSpace(token) || (!marketDataEnabled && (accountNames == null || accountNames.Length == 0)))
             {
                 NinjaTrader.Code.Output.Process("Configure endpoint, token, and at least one account from New > Ninja Control.", PrintTo.OutputTab1);
+                Interlocked.Exchange(ref started, 0);
                 return;
             }
 
@@ -181,9 +223,10 @@ namespace NinjaTrader.NinjaScript.AddOns
                     else selectedAccounts.Add(candidate);
                 }
             }
-            if (selectedAccounts.Count == 0)
+            if (selectedAccounts.Count == 0 && (!marketDataEnabled || marketSymbols == null || marketSymbols.Length == 0 || String.IsNullOrWhiteSpace(futureInstrument)))
             {
                 NinjaTrader.Code.Output.Process("None of the selected NinjaTrader accounts is currently available. No account was attached.", PrintTo.OutputTab1);
+                Interlocked.Exchange(ref started, 0);
                 return;
             }
 
@@ -221,6 +264,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     SendSnapshot(candidate, null, true);
                 }
             }, null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2));
+            if (marketDataEnabled) StartMarketFeed();
             string connectedNames = String.Join(", ", selectedAccounts.Select(candidate => candidate.Name).ToArray());
             NinjaTrader.Code.Output.Process("Ninja Control read-only sync started for " + connectedNames + ".", PrintTo.OutputTab1);
             if (missingAccounts.Count > 0)
@@ -228,10 +272,13 @@ namespace NinjaTrader.NinjaScript.AddOns
         }
         private void StopConnector()
         {
+            if (Interlocked.Exchange(ref started, 0) == 0 && accounts.IsEmpty && marketSubscriptions.IsEmpty) return;
             if (flushTimer != null) flushTimer.Dispose();
             if (heartbeatTimer != null) heartbeatTimer.Dispose();
+            if (marketFlushTimer != null) marketFlushTimer.Dispose();
             flushTimer = null;
             heartbeatTimer = null;
+            marketFlushTimer = null;
             foreach (Account candidate in accounts.Values)
             {
                 candidate.AccountItemUpdate -= OnAccountItemUpdate;
@@ -241,6 +288,133 @@ namespace NinjaTrader.NinjaScript.AddOns
             }
             accounts.Clear();
             observedAccountValues.Clear();
+            foreach (var subscription in marketSubscriptions.ToArray())
+            {
+                try { subscription.Value.Update -= OnMarketData; } catch { }
+            }
+            marketSubscriptions.Clear();
+            marketQuotes.Clear();
+            marketInstruments.Clear();
+        }
+
+        private void StartMarketFeed()
+        {
+            var choices = new System.Collections.Generic.List<MarketInstrumentChoice>();
+            foreach (string symbol in (marketSymbols ?? new string[0]).Take(MarketSymbolLimit))
+            {
+                string[] parts = symbol.Split('|');
+                string instrumentKey = parts[0].Trim();
+                if (String.IsNullOrWhiteSpace(instrumentKey)) continue;
+                double weight = 0;
+                DateTime effective = DateTime.MinValue;
+                bool hasWeight = parts.Length > 2 && Double.TryParse(parts[2].Trim().Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out weight) && weight > 0 && weight <= 100;
+                bool hasDate = DateTime.TryParseExact(marketMetadataEffectiveFrom, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out effective);
+                choices.Add(new MarketInstrumentChoice { InstrumentKey = instrumentKey, Symbol = instrumentKey.Split(' ')[0].ToUpperInvariant(), Kind = "equity", Sector = parts.Length > 1 && !String.IsNullOrWhiteSpace(parts[1]) ? parts[1].Trim() : null, MarketCapWeight = hasWeight ? (double?)weight : null, MetadataSource = String.IsNullOrWhiteSpace(marketMetadataSource) ? null : marketMetadataSource, EffectiveFrom = hasDate ? effective.ToString("o") : null });
+            }
+            if (!String.IsNullOrWhiteSpace(futureInstrument))
+                choices.Add(new MarketInstrumentChoice { InstrumentKey = futureInstrument.Trim(), Symbol = futureInstrument.Trim().Split(' ')[0].ToUpperInvariant(), Kind = "future" });
+
+            foreach (MarketInstrumentChoice choice in choices.GroupBy(item => item.InstrumentKey, StringComparer.OrdinalIgnoreCase).Select(group => group.First()))
+            {
+                marketInstruments[choice.InstrumentKey] = choice;
+                try
+                {
+                    Instrument instrument = Instrument.GetInstrument(choice.InstrumentKey);
+                    if (instrument == null)
+                    {
+                        NinjaTrader.Code.Output.Process("Ninja Control market symbol not found: " + choice.InstrumentKey, PrintTo.OutputTab1);
+                        continue;
+                    }
+                    var marketData = new MarketData(instrument);
+                    marketSubscriptions[choice.InstrumentKey] = marketData;
+                    marketData.Update += OnMarketData;
+                }
+                catch (Exception ex)
+                {
+                    NinjaTrader.Code.Output.Process("Ninja Control could not subscribe to " + choice.InstrumentKey + ": " + ex.Message, PrintTo.OutputTab1);
+                }
+            }
+            marketFlushTimer = new Timer(_ => FlushMarketBatch(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+            NinjaTrader.Code.Output.Process("Ninja Control Level I watchlist started: " + marketSubscriptions.Count + "/" + choices.Count + " subscriptions. Provider coverage can be partial.", PrintTo.OutputTab1);
+        }
+
+        private void OnMarketData(object sender, MarketDataEventArgs e)
+        {
+            if (e == null || e.Instrument == null) return;
+            MarketInstrumentChoice choice;
+            string providerKey = e.Instrument.FullName;
+            if (!marketInstruments.TryGetValue(providerKey, out choice))
+                choice = marketInstruments.Values.FirstOrDefault(item => String.Equals(item.InstrumentKey, providerKey, StringComparison.OrdinalIgnoreCase));
+            if (choice == null) return;
+            string key = choice.InstrumentKey;
+            MarketQuoteState quote = marketQuotes.GetOrAdd(key, _ => new MarketQuoteState { InstrumentKey = key, Symbol = choice.Symbol, Kind = choice.Kind, ContractExpiry = choice.Kind == "future" ? ContractExpiry(key) : null });
+            lock (quote)
+            {
+                bool changed = false;
+                if (e.MarketDataType == MarketDataType.Last && e.Price > 0)
+                {
+                    quote.Last = e.Price;
+                    quote.EventAt = e.Time.ToUniversalTime();
+                    changed = true;
+                }
+                else if (e.MarketDataType == MarketDataType.LastClose && e.Price > 0) { quote.PriorClose = e.Price; changed = true; }
+                else if (e.MarketDataType == MarketDataType.Bid && e.Price > 0) { quote.Bid = e.Price; changed = true; }
+                else if (e.MarketDataType == MarketDataType.Ask && e.Price > 0) { quote.Ask = e.Price; changed = true; }
+                else if (e.MarketDataType == MarketDataType.DailyVolume && e.Volume >= 0) { quote.SessionVolume = e.Volume; changed = true; }
+                if (changed) quote.Sequence++;
+            }
+            if (marketQuotes.Count > MarketSnapshotLimit) Interlocked.Increment(ref marketDropped);
+        }
+
+        private static string ContractExpiry(string instrumentKey)
+        {
+            string[] parts = (instrumentKey ?? String.Empty).Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length > 1 ? String.Join(" ", parts.Skip(1).ToArray()) : instrumentKey;
+        }
+
+        private async void FlushMarketBatch()
+        {
+            if (marketInstruments.IsEmpty || !await marketSender.WaitAsync(0)) return;
+            try
+            {
+                string marketEndpoint = endpoint.EndsWith("/events", StringComparison.OrdinalIgnoreCase) ? endpoint.Substring(0, endpoint.Length - "/events".Length) + "/market-data" : endpoint.TrimEnd('/') + "/market-data";
+                var instruments = marketInstruments.Values.OrderBy(item => item.InstrumentKey).Select(item => new { instrumentKey = item.InstrumentKey, symbol = item.Symbol, kind = item.Kind, sector = item.Sector, marketCapWeight = item.MarketCapWeight, metadataSource = item.MetadataSource, effectiveFrom = item.EffectiveFrom }).ToArray();
+                var quotes = marketQuotes.Values.Where(item => item.Last > 0 && item.EventAt != DateTime.MinValue).OrderBy(item => item.InstrumentKey).Select(item =>
+                {
+                    lock (item) return new { instrumentKey = item.InstrumentKey, eventAt = item.EventAt.ToString("o"), last = item.Last, priorClose = item.PriorClose > 0 ? (double?)item.PriorClose : null, bid = item.Bid > 0 ? (double?)item.Bid : null, ask = item.Ask > 0 ? (double?)item.Ask : null, sessionVolume = item.SessionVolume >= 0 ? (double?)item.SessionVolume : null, contractExpiry = item.ContractExpiry, sequence = (long?)item.Sequence };
+                }).Take(MarketSnapshotLimit).ToArray();
+                var payload = new { sourceId = installationId, sentAt = DateTime.UtcNow.ToString("o"), instruments, quotes };
+                using (var request = new HttpRequestMessage(HttpMethod.Post, marketEndpoint))
+                {
+                    request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                    request.Content = new StringContent(JsonConvert.SerializeObject(payload), Encoding.UTF8, "application/json");
+                    using (HttpResponseMessage response = await Client.SendAsync(request))
+                    {
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            DateTime now = DateTime.UtcNow;
+                            if (now - lastReportedMarketErrorUtc >= TimeSpan.FromMinutes(1))
+                            {
+                                lastReportedMarketErrorUtc = now;
+                                NinjaTrader.Code.Output.Process("Ninja Control market data not accepted (HTTP " + (int)response.StatusCode + "). Check data entitlement, symbols, token, and deployment.", PrintTo.OutputTab1);
+                            }
+                            return;
+                        }
+                    }
+                }
+                int dropped = Interlocked.Exchange(ref marketDropped, 0);
+                if (dropped > 0) NinjaTrader.Code.Output.Process("Ninja Control coalesced or skipped " + dropped + " excess market updates; latest quote snapshots remain prioritized.", PrintTo.OutputTab1);
+            }
+            catch
+            {
+                DateTime now = DateTime.UtcNow;
+                if (now - lastReportedMarketErrorUtc >= TimeSpan.FromMinutes(1))
+                {
+                    lastReportedMarketErrorUtc = now;
+                    NinjaTrader.Code.Output.Process("Ninja Control could not reach the market-data endpoint. The latest quote state will be retried.", PrintTo.OutputTab1);
+                }
+            }
+            finally { marketSender.Release(); }
         }
 
         private static bool IsSupportedAccount(Account candidate)
@@ -282,6 +456,11 @@ namespace NinjaTrader.NinjaScript.AddOns
                 else if (!String.IsNullOrWhiteSpace(saved.AccountName))
                     accountNames = new[] { saved.AccountName };
                 installationId = String.IsNullOrWhiteSpace(saved.InstallationId) ? Guid.NewGuid().ToString("N") : saved.InstallationId;
+                marketDataEnabled = saved.MarketDataEnabled;
+                marketSymbols = (saved.MarketSymbols ?? new string[0]).Where(name => !String.IsNullOrWhiteSpace(name)).Distinct(StringComparer.OrdinalIgnoreCase).Take(MarketSymbolLimit).ToArray();
+                futureInstrument = saved.FutureInstrument ?? String.Empty;
+                marketMetadataSource = saved.MarketMetadataSource ?? String.Empty;
+                marketMetadataEffectiveFrom = saved.MarketMetadataEffectiveFrom ?? String.Empty;
                 if (!String.IsNullOrWhiteSpace(saved.ProtectedToken))
                     token = Encoding.UTF8.GetString(UnprotectForCurrentUser(Convert.FromBase64String(saved.ProtectedToken)));
             }
@@ -294,7 +473,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 string folder = Path.GetDirectoryName(SettingsPath);
                 Directory.CreateDirectory(folder);
-                var saved = new ConnectorSettings { Endpoint = endpoint, AccountNames = accountNames, AccountName = accountNames == null || accountNames.Length == 0 ? String.Empty : accountNames[0], InstallationId = installationId, ProtectedToken = Convert.ToBase64String(ProtectForCurrentUser(Encoding.UTF8.GetBytes(token))) };
+                var saved = new ConnectorSettings { Endpoint = endpoint, AccountNames = accountNames, AccountName = accountNames == null || accountNames.Length == 0 ? String.Empty : accountNames[0], MarketDataEnabled = marketDataEnabled, MarketSymbols = marketSymbols, FutureInstrument = futureInstrument, MarketMetadataSource = marketMetadataSource, MarketMetadataEffectiveFrom = marketMetadataEffectiveFrom, InstallationId = installationId, ProtectedToken = Convert.ToBase64String(ProtectForCurrentUser(Encoding.UTF8.GetBytes(token))) };
                 File.WriteAllText(SettingsPath, JsonConvert.SerializeObject(saved, Formatting.Indented));
             }
             catch (Exception ex) { NinjaTrader.Code.Output.Process("Could not save encrypted connector settings: " + ex.Message, PrintTo.OutputTab1); }
@@ -339,8 +518,39 @@ namespace NinjaTrader.NinjaScript.AddOns
             public string Endpoint { get; set; }
             public string[] AccountNames { get; set; }
             public string AccountName { get; set; }
+            public bool MarketDataEnabled { get; set; }
+            public string[] MarketSymbols { get; set; }
+            public string FutureInstrument { get; set; }
+            public string MarketMetadataSource { get; set; }
+            public string MarketMetadataEffectiveFrom { get; set; }
             public string InstallationId { get; set; }
             public string ProtectedToken { get; set; }
+        }
+
+        private sealed class MarketInstrumentChoice
+        {
+            public string InstrumentKey { get; set; }
+            public string Symbol { get; set; }
+            public string Kind { get; set; }
+            public string Sector { get; set; }
+            public double? MarketCapWeight { get; set; }
+            public string MetadataSource { get; set; }
+            public string EffectiveFrom { get; set; }
+        }
+
+        private sealed class MarketQuoteState
+        {
+            public string InstrumentKey { get; set; }
+            public string Symbol { get; set; }
+            public string Kind { get; set; }
+            public string ContractExpiry { get; set; }
+            public double Last { get; set; }
+            public double PriorClose { get; set; }
+            public double Bid { get; set; }
+            public double Ask { get; set; }
+            public long SessionVolume { get; set; } = -1;
+            public long Sequence { get; set; }
+            public DateTime EventAt { get; set; }
         }
 
         private void OnAccountItemUpdate(object sender, AccountItemEventArgs e)

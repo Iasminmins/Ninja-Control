@@ -12,6 +12,13 @@ INSTALACAO EM QUALQUER PC WINDOWS COM NINJATRADER 8 DESKTOP
 5. Informe o endpoint HTTPS e o token do workspace. Marque uma ou mais
    contas na lista e confira o modo: LIVE · CONTA REAL ou SIM · DEMONSTRAÇÃO.
 6. No Ninja Control, associe a conta descoberta à conta correspondente.
+7. Para o Contexto de Mercado, marque "Ativar mapa de contexto (cotações Level I)".
+   Informe símbolos de ações que sua conexão está autorizada a transmitir,
+   separados por vírgula, e o instrumento futuro exato com vencimento, por
+   exemplo NQ 12-26. O provedor pode não oferecer todos os símbolos.
+8. Opcionalmente informe metadados autorizados no formato SYMBOL|SETOR|PESO%,
+   por exemplo AAPL|Tecnologia|8.5, além da fonte e data de vigência. Sem pesos,
+   os blocos têm áreas iguais; sem setores, aparece "Sem classificação".
 
 SEGURANCA
 
@@ -60,3 +67,19 @@ Para atualizar uma instalação já rodando: substitua o código pelo
 NinjaControlAddOn.cs deste pacote, compile no NinjaScript Editor e inicie a
 sincronização novamente pelo Control Center. A instalação anterior não recebe
 o código novo automaticamente.
+
+CONTEXTO DE MERCADO
+
+O AddOn assina Level I pela API MarketData do NinjaTrader e envia o último
+estado dos instrumentos em lotes de 5 segundos para /market-data, separado da
+fila de contas, ordens e execuções. O provedor pode não oferecer cobertura ou
+permissão de cotação em tempo real para todos os ativos. Confira o Output do
+NinjaTrader e a cobertura na tela Contexto de Mercado. O horário do evento da
+fonte e o recebimento pelo servidor são registrados separadamente.
+
+Os metadados de setor e peso são opcionais e devem vir de uma fonte cuja licença
+permita esse armazenamento. O valor PESO é relativo (a plataforma normaliza os
+pesos informados); registre a fonte e a data de vigência. Sem pesos confiáveis,
+o mapa usa áreas iguais e omite a mudança ponderada do índice. A integração não
+busca nem copia dados do TradingView. O primeiro release é descritivo, não
+calcula probabilidade de entrada e nunca envia ordens.

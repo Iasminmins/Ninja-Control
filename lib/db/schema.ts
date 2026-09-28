@@ -1,6 +1,8 @@
 import { sql } from 'drizzle-orm'
 import {
+  bigint,
   boolean,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -349,6 +351,77 @@ export const integrationSyncBatches = pgTable('integration_sync_batches', {
   executionCount: integer('execution_count'),
   createdAt: createdAt(),
 }, (table) => [uniqueIndex('integration_sync_batch_mapping_sync_unique').on(table.mappingId, table.syncId)])
+
+export const marketInstruments = pgTable('market_instruments', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  provider: varchar('provider', { length: 80 }).notNull(),
+  instrumentKey: varchar('instrument_key', { length: 120 }).notNull(),
+  symbol: varchar('symbol', { length: 32 }).notNull(),
+  displayName: varchar('display_name', { length: 120 }),
+  instrumentKind: varchar('instrument_kind', { length: 16 }).notNull(),
+  active: boolean('active').notNull().default(true),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow().notNull(),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => [
+  uniqueIndex('market_instruments_workspace_provider_key_unique').on(table.workspaceId, table.provider, table.instrumentKey),
+  index('market_instruments_workspace_kind_active_idx').on(table.workspaceId, table.instrumentKind, table.active),
+  uniqueIndex('market_instruments_workspace_id_unique').on(table.workspaceId, table.id),
+])
+
+export const marketInstrumentMetadataVersions = pgTable('market_instrument_metadata_versions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  instrumentId: uuid('instrument_id').notNull(),
+  effectiveFrom: timestamp('effective_from', { withTimezone: true }).notNull(),
+  effectiveUntil: timestamp('effective_until', { withTimezone: true }),
+  sector: varchar('sector', { length: 80 }),
+  marketCapWeight: numeric('market_cap_weight', { precision: 12, scale: 8, mode: 'number' }),
+  source: varchar('source', { length: 120 }).notNull(),
+  createdAt: createdAt(),
+}, (table) => [
+  uniqueIndex('market_metadata_workspace_instrument_date_unique').on(table.workspaceId, table.instrumentId, table.effectiveFrom),
+  index('market_metadata_workspace_effective_idx').on(table.workspaceId, table.effectiveFrom, table.effectiveUntil),
+  foreignKey({ columns: [table.workspaceId, table.instrumentId], foreignColumns: [marketInstruments.workspaceId, marketInstruments.id], name: 'market_metadata_workspace_instrument_fk' }).onDelete('cascade'),
+])
+
+export const marketInstrumentSnapshots = pgTable('market_instrument_snapshots', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  instrumentId: uuid('instrument_id').notNull(),
+  sourceId: varchar('source_id', { length: 80 }).notNull(),
+  eventAt: timestamp('event_at', { withTimezone: true }).notNull(),
+  receivedAt: timestamp('received_at', { withTimezone: true }).defaultNow().notNull(),
+  lastPrice: numeric('last_price', { precision: 18, scale: 8, mode: 'number' }).notNull(),
+  priorClose: numeric('prior_close', { precision: 18, scale: 8, mode: 'number' }),
+  bid: numeric('bid', { precision: 18, scale: 8, mode: 'number' }),
+  ask: numeric('ask', { precision: 18, scale: 8, mode: 'number' }),
+  sessionVolume: numeric('session_volume', { precision: 20, scale: 4, mode: 'number' }),
+  contractExpiry: varchar('contract_expiry', { length: 24 }),
+  sequence: bigint('sequence', { mode: 'number' }),
+}, (table) => [
+  uniqueIndex('market_snapshots_workspace_instrument_unique').on(table.workspaceId, table.instrumentId),
+  index('market_snapshots_workspace_event_idx').on(table.workspaceId, table.eventAt),
+  foreignKey({ columns: [table.workspaceId, table.instrumentId], foreignColumns: [marketInstruments.workspaceId, marketInstruments.id], name: 'market_snapshots_workspace_instrument_fk' }).onDelete('cascade'),
+])
+
+export const marketMinuteAggregates = pgTable('market_minute_aggregates', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  instrumentId: uuid('instrument_id').notNull(),
+  minuteStart: timestamp('minute_start', { withTimezone: true }).notNull(),
+  eventAt: timestamp('event_at', { withTimezone: true }).notNull(),
+  receivedAt: timestamp('received_at', { withTimezone: true }).defaultNow().notNull(),
+  lastPrice: numeric('last_price', { precision: 18, scale: 8, mode: 'number' }).notNull(),
+  priorClose: numeric('prior_close', { precision: 18, scale: 8, mode: 'number' }),
+  sessionVolume: numeric('session_volume', { precision: 20, scale: 4, mode: 'number' }),
+  sequence: bigint('sequence', { mode: 'number' }),
+}, (table) => [
+  uniqueIndex('market_minute_workspace_instrument_time_unique').on(table.workspaceId, table.instrumentId, table.minuteStart),
+  index('market_minute_workspace_time_idx').on(table.workspaceId, table.minuteStart),
+  foreignKey({ columns: [table.workspaceId, table.instrumentId], foreignColumns: [marketInstruments.workspaceId, marketInstruments.id], name: 'market_minute_workspace_instrument_fk' }).onDelete('cascade'),
+])
 
 export const alertRules = pgTable('alert_rules', {
   id: uuid('id').defaultRandom().primaryKey(),
