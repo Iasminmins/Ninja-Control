@@ -138,10 +138,52 @@ function HsgPanel({ signals }: { signals: HsgSignal[] }) {
 }
 
 function GridCharts({ months }: { months: GridMonth[] }) {
-  const rows = [...months].sort((a, b) => a.month.localeCompare(b.month))
-  const drawdownRows = rows.map((month) => ({ ...month, drawdownMagnitude: month.maxDrawdown === null ? null : Math.abs(month.maxDrawdown) }))
+  const grouped = new Map<string, GridMonth[]>()
+  for (const month of months) grouped.set(month.month, [...(grouped.get(month.month) ?? []), month])
+  const rows = [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, entries]) => {
+    const sumAvailable = (select: (entry: GridMonth) => number | null) => {
+      const values = entries.map(select).filter((value): value is number => value !== null)
+      return values.length ? values.reduce((sum, value) => sum + value, 0) : null
+    }
+    return { month, longNet: sumAvailable((entry) => entry.longNet), shortNet: sumAvailable((entry) => entry.shortNet), net: sumAvailable((entry) => entry.net) }
+  })
+  const totalLong = months.reduce((sum, month) => sum + (month.longNet ?? 0), 0)
+  const totalShort = months.reduce((sum, month) => sum + (month.shortNet ?? 0), 0)
+  const drawdownRows = [...months].sort((a, b) => a.month.localeCompare(b.month)).map((month) => ({ ...month, drawdownMagnitude: month.maxDrawdown === null ? null : Math.abs(month.maxDrawdown) }))
+  const axisMoney = (value: number) => {
+    const amount = Number(value)
+    const sign = amount < 0 ? '−' : ''
+    return Math.abs(amount) >= 1000
+      ? `${sign}$${(Math.abs(amount) / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mil`
+      : `${sign}$${Math.abs(amount).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`
+  }
+  const directionName = (value: string) => value === 'longNet' ? 'Compras (Long)' : value === 'shortNet' ? 'Vendas (Short)' : 'Total reportado'
   return <div className="grid gap-4 xl:grid-cols-2">
-    <div className="rounded-xl border border-white/[0.06] bg-black/10 p-4"><p className="mb-2 text-xs font-medium text-zinc-200">Resultado mensal por direção</p><div className="h-[265px] min-w-0"><ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 520, height: 265 }}><BarChart data={rows}><CartesianGrid stroke="rgba(255,255,255,.07)" vertical={false} /><XAxis dataKey="month" tick={{ fill: '#71717a', fontSize: 9 }} tickFormatter={dateLabel} axisLine={false} tickLine={false} /><YAxis tick={{ fill: '#71717a', fontSize: 9 }} tickFormatter={(value) => `$${Number(value).toLocaleString('pt-BR')}`} axisLine={false} tickLine={false} width={64} /><Tooltip labelFormatter={(value) => dateLabel(String(value))} formatter={(value, name) => [money(Number(value)), name === 'longNet' ? 'Long' : name === 'shortNet' ? 'Short' : 'Total reportado']} contentStyle={chartTooltip} /><Legend formatter={(value) => value === 'longNet' ? 'Long' : value === 'shortNet' ? 'Short' : 'Total reportado'} /><ReferenceLine y={0} stroke="rgba(255,255,255,.25)" /><Bar dataKey="longNet" fill="#60a5fa" radius={[3, 3, 0, 0]} /><Bar dataKey="shortNet" fill={green} radius={[3, 3, 0, 0]} /><Line dataKey="net" stroke="#f4f4f5" strokeWidth={2} dot={false} /></BarChart></ResponsiveContainer></div></div>
+    <div className="rounded-2xl border border-white/[0.08] bg-[#101214] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.18)] sm:p-5">
+      <div className="mb-4">
+        <p className="text-sm font-semibold tracking-tight text-white">Resultado mensal por direção</p>
+        <p className="mt-1 text-[10px] text-zinc-500">Resultado líquido consolidado por mês e direção.</p>
+      </div>
+      <div className="mb-4 grid grid-cols-2 gap-2">
+        <div className="rounded-xl border border-blue-400/15 bg-blue-400/[0.06] px-3 py-2.5"><p className="text-[9px] font-medium uppercase tracking-[0.12em] text-blue-300/75">Compras · Long</p><p className="mt-1 font-mono text-sm font-semibold text-blue-300">{money(totalLong)}</p></div>
+        <div className="rounded-xl border border-[#b9f227]/15 bg-[#b9f227]/[0.05] px-3 py-2.5"><p className="text-[9px] font-medium uppercase tracking-[0.12em] text-[#b9f227]/70">Vendas · Short</p><p className="mt-1 font-mono text-sm font-semibold text-[#b9f227]">{money(totalShort)}</p></div>
+      </div>
+      <div className="h-[290px] min-w-0">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 520, height: 290 }}>
+          <BarChart data={rows} barGap={4} barCategoryGap="28%" margin={{ top: 8, right: 8, bottom: 0, left: 4 }}>
+            <CartesianGrid stroke="rgba(255,255,255,.06)" vertical={false} />
+            <XAxis dataKey="month" tick={{ fill: '#858b93', fontSize: 9 }} tickFormatter={dateLabel} axisLine={{ stroke: 'rgba(255,255,255,.1)' }} tickLine={false} minTickGap={12} />
+            <YAxis tick={{ fill: '#71717a', fontSize: 9 }} tickFormatter={axisMoney} axisLine={false} tickLine={false} width={66} />
+            <Tooltip labelFormatter={(value) => dateLabel(String(value))} formatter={(value, name) => [money(Number(value)), directionName(String(name))]} contentStyle={chartTooltip} cursor={{ fill: 'rgba(255,255,255,.035)' }} />
+            <Legend formatter={(value) => directionName(String(value))} wrapperStyle={{ paddingTop: 8, fontSize: 10, color: '#a1a1aa' }} />
+            <ReferenceLine y={0} stroke="rgba(255,255,255,.3)" strokeWidth={1.2} />
+            <Bar dataKey="longNet" name="longNet" radius={[4, 4, 0, 0]} maxBarSize={22}>{rows.map((row) => <Cell key={`${row.month}-long`} fill={(row.longNet ?? 0) < 0 ? red : '#60a5fa'} />)}</Bar>
+            <Bar dataKey="shortNet" name="shortNet" radius={[4, 4, 0, 0]} maxBarSize={22}>{rows.map((row) => <Cell key={`${row.month}-short`} fill={(row.shortNet ?? 0) < 0 ? red : green} />)}</Bar>
+            <Line dataKey="net" name="net" type="monotone" stroke="#e4e4e7" strokeWidth={1.8} strokeDasharray="5 4" dot={{ r: 2.5, fill: '#101214', stroke: '#e4e4e7', strokeWidth: 1.5 }} activeDot={{ r: 4, fill: '#e4e4e7', stroke: '#101214', strokeWidth: 2 }} connectNulls={false} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
     <div className="rounded-xl border border-white/[0.06] bg-black/10 p-4"><p className="mb-1 text-xs font-medium text-zinc-200">Perda máxima no mês (USD)</p><p className="mb-2 text-[10px] text-zinc-500">A barra sobe a partir de zero; quanto maior, maior o drawdown informado.</p><div className="h-[265px] min-w-0"><ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 520, height: 265 }}><BarChart data={drawdownRows}><CartesianGrid stroke="rgba(255,255,255,.07)" vertical={false} /><XAxis dataKey="month" tick={{ fill: '#71717a', fontSize: 9 }} tickFormatter={dateLabel} axisLine={false} tickLine={false} /><YAxis domain={[0, 'auto']} tick={{ fill: '#71717a', fontSize: 9 }} tickFormatter={(value) => `$${Number(value).toLocaleString('pt-BR')}`} axisLine={false} tickLine={false} width={64} /><Tooltip labelFormatter={(value) => dateLabel(String(value))} formatter={(value) => [money(Number(value)), 'Perda máxima no mês']} contentStyle={chartTooltip} /><ReferenceLine y={0} stroke="rgba(255,255,255,.25)" /><Bar dataKey="drawdownMagnitude" fill={red} radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div></div>
   </div>
 }
@@ -213,14 +255,62 @@ export function CsvTestWorkbench() {
 
   useEffect(() => {
     let mounted = true
-    void fetchCsvLibrary().then((library) => {
-      if (!mounted) return
-      setSavedFiles(library.files)
-      setUploadPrefix(library.uploadPrefix)
-      setStorageError('')
-    }).catch((error) => {
-      if (mounted) setStorageError(error instanceof Error ? error.message : 'Armazenamento indisponível.')
-    }).finally(() => { if (mounted) setLoadingLibrary(false) })
+    async function restoreSavedFiles() {
+      try {
+        const library = await fetchCsvLibrary()
+        if (!mounted) return
+        setSavedFiles(library.files)
+        setUploadPrefix(library.uploadPrefix)
+        setStorageError('')
+        if (!library.files.length) return
+
+        setBusy(true)
+        setProgress(`Restaurando 0 de ${library.files.length} arquivos…`)
+        const restored: (AnalysisItem | null)[] = Array(library.files.length).fill(null)
+        const restoreErrors: string[] = []
+        const staleIds = new Set<string>()
+        let cursor = 0
+        let completed = 0
+        const restoreNext = async () => {
+          while (cursor < library.files.length) {
+            const index = cursor++
+            const file = library.files[index]
+            try {
+              const response = await fetch(`/api/experiment-csv-files/${file.id}`, { cache: 'no-store' })
+              if (!response.ok) {
+                if (response.status === 404) staleIds.add(file.id)
+                const result = await response.json().catch(() => ({})) as { error?: string }
+                throw new Error(result.error ?? 'Não foi possível recuperar o arquivo.')
+              }
+              const analysis = parseExperimentCsv(file.fileName, await response.text())
+              restored[index] = { storageId: file.id, analysis }
+            } catch (error) {
+              restoreErrors.push(`${file.fileName}: ${error instanceof Error ? error.message : 'não foi possível ler este arquivo.'}`)
+            } finally {
+              completed += 1
+              if (mounted) setProgress(`Restaurando ${completed} de ${library.files.length} arquivos…`)
+            }
+          }
+        }
+        await Promise.all(Array.from({ length: Math.min(4, library.files.length) }, () => restoreNext()))
+        if (!mounted) return
+        const loaded = restored.filter((item): item is AnalysisItem => item !== null)
+        setItems((current) => [...current, ...loaded.filter((item) => !current.some((existing) => existing.storageId === item.storageId))])
+        if (loaded.some((item) => item.analysis.kind === 'hsg')) setActiveKind('hsg')
+        else if (loaded.some((item) => item.analysis.kind === 'grid')) setActiveKind('grid')
+        if (staleIds.size) setSavedFiles((current) => current.filter((file) => !staleIds.has(file.id)))
+        setErrors(restoreErrors)
+      } catch (error) {
+        if (mounted) setStorageError(error instanceof Error ? error.message : 'Armazenamento indisponível.')
+      } finally {
+        if (mounted) {
+          setLoadingLibrary(false)
+          setBusy(false)
+          setProgress('')
+        }
+      }
+    }
+    void restoreSavedFiles()
     return () => { mounted = false }
   }, [])
 
@@ -236,18 +326,21 @@ export function CsvTestWorkbench() {
     setBusy(true); setProgress('Lendo e validando arquivos…')
     const parsed: { file: File; analysis: CsvAnalysis }[] = []
     const nextErrors: string[] = []
-    for (const file of selected) {
-      if (!file.name.toLowerCase().endsWith('.csv') || file.size > 25 * 1024 * 1024) { nextErrors.push(`${file.name}: envie um arquivo CSV de até 25 MB.`); continue }
-      try { parsed.push({ file, analysis: parseExperimentCsv(file.name, await file.text()) }) }
-      catch (error) { nextErrors.push(`${file.name}: ${error instanceof Error ? error.message : 'não foi possível ler este arquivo.'}`) }
-    }
+    const parseResults = await Promise.all(selected.map(async (file) => {
+      if (!file.name.toLowerCase().endsWith('.csv') || file.size > 25 * 1024 * 1024) { nextErrors.push(`${file.name}: envie um arquivo CSV de até 25 MB.`); return null }
+      try { return { file, analysis: parseExperimentCsv(file.name, await file.text()) } }
+      catch (error) { nextErrors.push(`${file.name}: ${error instanceof Error ? error.message : 'não foi possível ler este arquivo.'}`); return null }
+    }))
+    parsed.push(...parseResults.filter((item): item is { file: File; analysis: CsvAnalysis } => item !== null))
     if (!uploadPrefix && parsed.length) nextErrors.push('O armazenamento da conta ainda não está disponível. Atualize a página e tente novamente.')
-    const added: AnalysisItem[] = []
-    for (let index = 0; index < parsed.length && uploadPrefix; index += 1) {
-      const { file, analysis } = parsed[index]
+    const uploaded: { storageId: string; analysis: CsvAnalysis }[] = []
+    const pendingIds = new Set<string>()
+    let uploadCursor = 0
+    let completedUploads = 0
+    const uploadOne = async ({ file, analysis }: { file: File; analysis: CsvAnalysis }) => {
       const storageId = crypto.randomUUID()
       const path = `${uploadPrefix}${storageId}-${safePathName(file.name)}`
-      setProgress(`Enviando ${index + 1} de ${parsed.length}: ${file.name}`)
+      pendingIds.add(storageId)
       try {
         await upload(path, file, {
           access: 'private',
@@ -256,18 +349,46 @@ export function CsvTestWorkbench() {
           clientPayload: JSON.stringify({ fileId: storageId, fileName: file.name }),
           multipart: file.size > 4.5 * 1024 * 1024,
         })
-
-        let registered = false
-        const deadline = Date.now() + 15_000
-        while (Date.now() < deadline) {
-          const library = await refreshLibrary()
-          if (library.files.some((saved) => saved.id === storageId)) { registered = true; break }
-          await new Promise((resolve) => window.setTimeout(resolve, 500))
-        }
-        if (!registered) throw new Error('O envio terminou, mas o arquivo ainda não foi confirmado no armazenamento. Atualize a lista antes de reenviar.')
-        added.push({ storageId, analysis })
+        uploaded.push({ storageId, analysis })
       } catch (error) {
         nextErrors.push(`${file.name}: ${error instanceof Error ? error.message : 'não foi possível salvar este arquivo.'}`)
+        pendingIds.delete(storageId)
+      } finally {
+        completedUploads += 1
+        setProgress(`Enviando ${completedUploads} de ${parsed.length} arquivos…`)
+      }
+    }
+    if (uploadPrefix && parsed.length) {
+      const workerCount = Math.min(12, parsed.length)
+      await Promise.all(Array.from({ length: workerCount }, async () => {
+        while (uploadCursor < parsed.length) {
+          const item = parsed[uploadCursor++]
+          await uploadOne(item)
+        }
+      }))
+    }
+
+    const registeredIds = new Set<string>()
+    const deadline = Date.now() + 15_000
+    while (pendingIds.size && Date.now() < deadline) {
+      setProgress(`Confirmando ${registeredIds.size} de ${pendingIds.size} arquivos…`)
+      try {
+        const library = await refreshLibrary()
+        for (const saved of library.files) {
+          if (pendingIds.has(saved.id)) registeredIds.add(saved.id)
+        }
+      } catch (error) {
+        setStorageError(error instanceof Error ? error.message : 'Não foi possível confirmar os arquivos enviados.')
+        break
+      }
+      if (registeredIds.size >= pendingIds.size) break
+      await new Promise((resolve) => window.setTimeout(resolve, 750))
+    }
+
+    const added = uploaded.filter((item) => registeredIds.has(item.storageId))
+    for (const item of uploaded) {
+      if (!registeredIds.has(item.storageId)) {
+        nextErrors.push(`${item.analysis.fileName}: o envio terminou, mas o arquivo ainda não foi confirmado no armazenamento. Atualize a lista antes de reenviar.`)
       }
     }
     if (added.length) {
