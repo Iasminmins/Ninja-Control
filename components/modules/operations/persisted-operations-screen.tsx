@@ -17,12 +17,14 @@ export function PersistedOperationsScreen({ snapshot, loadError }: { snapshot: S
   useEffect(() => {
     if (!snapshot) return
     let active = true
+    let latestRequest = 0
     const refresh = async () => {
       if (document.visibilityState !== 'visible') return
+      const requestId = ++latestRequest
       const response = await fetch('/api/integrations/ninjatrader-desktop/state', { cache: 'no-store' }).catch(() => null)
       if (!response?.ok) return
       const data = await response.json().catch(() => ({})) as { accounts?: Snapshot['liveAccountStates'] }
-      if (active && data.accounts) setLiveAccountStates(data.accounts)
+      if (active && requestId === latestRequest && data.accounts) setLiveAccountStates(data.accounts)
     }
     void refresh()
     const timer = window.setInterval(() => void refresh(), 5000)

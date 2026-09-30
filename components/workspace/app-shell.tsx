@@ -15,7 +15,7 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
-const neonWorkspaceRoutes = ['/dashboard', '/operations', '/accounts', '/analytics', '/performance', '/risk-command', '/trading-journal', '/master-slave', '/pattern-lab', '/prop-firms', '/payouts', '/integrations', '/audit', '/hunter', '/hsg', '/hsd', '/hunter-versions', '/experiments', '/alerts', '/reports', '/strategies', '/comparator']
+const neonWorkspaceRoutes = ['/dashboard', '/operations', '/accounts', '/analytics', '/performance', '/risk-command', '/trading-journal', '/master-slave', '/prop-firms', '/payouts', '/integrations', '/audit', '/hunter', '/hsg', '/hsd', '/hunter-versions', '/experiments', '/account-simulator', '/alerts', '/reports', '/strategies', '/comparator']
 const isNeonWorkspaceRoute = (pathname: string) => neonWorkspaceRoutes.some((route) => pathname === route || pathname.startsWith(`${route}/`))
 
 function Brand({ compact = false }: { compact?: boolean }) {

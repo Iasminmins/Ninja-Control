@@ -512,3 +512,27 @@ export const executionDivergences = pgTable('execution_divergences', {
   detectedAt: timestamp('detected_at', { withTimezone: true }).defaultNow().notNull(),
   resolvedAt: timestamp('resolved_at', { withTimezone: true }),
 }, (table) => [index('execution_divergences_workspace_time_idx').on(table.workspaceId, table.detectedAt)])
+
+export const experimentCsvFiles = pgTable('experiment_csv_files', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  fileName: varchar('file_name', { length: 255 }).notNull(),
+  blobPath: text('blob_path').notNull(),
+  byteSize: integer('byte_size').notNull(),
+  format: varchar('format', { length: 16 }).notNull(),
+  createdAt: createdAt(),
+}, (table) => [
+  uniqueIndex('experiment_csv_files_blob_path_unique').on(table.blobPath),
+  index('experiment_csv_files_workspace_created_idx').on(table.workspaceId, table.createdAt),
+])
+
+export const accountSimulatorScenarios = pgTable('account_simulator_scenarios', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 120 }).notNull(),
+  sourceFileIds: jsonb('source_file_ids').$type<string[]>().notNull().default([]),
+  configuration: jsonb('configuration').$type<Record<string, unknown>>().notNull().default({}),
+  calculationVersion: varchar('calculation_version', { length: 24 }).notNull().default('1'),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => [index('account_simulator_scenarios_workspace_updated_idx').on(table.workspaceId, table.updatedAt)])

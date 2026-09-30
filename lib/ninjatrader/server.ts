@@ -6,13 +6,13 @@ const provider = 'NinjaTrader'
 
 export async function getNinjaTraderAccountState(db: NeonHttpDatabase<typeof schema>, workspaceId: string) {
   const [mappings, connection] = await Promise.all([
-    db.select().from(schema.integrationAccountMappings).where(eq(schema.integrationAccountMappings.workspaceId, workspaceId)).orderBy(desc(schema.integrationAccountMappings.lastSeenAt)),
+    db.select().from(schema.integrationAccountMappings).where(eq(schema.integrationAccountMappings.workspaceId, workspaceId)).orderBy(schema.integrationAccountMappings.externalAccountName, schema.integrationAccountMappings.externalAccountId),
     db.select().from(schema.integrationConnections).where(and(eq(schema.integrationConnections.workspaceId, workspaceId), eq(schema.integrationConnections.provider, 'ninjatrader-desktop'))).limit(1).then((rows) => rows[0] ?? null),
   ])
   const accountIds = [...new Set(mappings.flatMap((mapping) => mapping.tradingAccountId ? [mapping.tradingAccountId] : []))]
   const [positions, snapshotHistoryByAccount, peakRows, orders, executions] = accountIds.length ? await Promise.all([
     db.select().from(schema.integrationPositions).where(eq(schema.integrationPositions.workspaceId, workspaceId)).orderBy(desc(schema.integrationPositions.capturedAt)),
-    Promise.all(accountIds.map((accountId) => db.select().from(schema.accountRiskSnapshots).where(and(eq(schema.accountRiskSnapshots.workspaceId, workspaceId), eq(schema.accountRiskSnapshots.accountId, accountId))).orderBy(desc(schema.accountRiskSnapshots.createdAt)).limit(500))),
+    Promise.all(accountIds.map((accountId) => db.select().from(schema.accountRiskSnapshots).where(and(eq(schema.accountRiskSnapshots.workspaceId, workspaceId), eq(schema.accountRiskSnapshots.accountId, accountId))).orderBy(desc(schema.accountRiskSnapshots.capturedAt), desc(schema.accountRiskSnapshots.createdAt)).limit(500))),
     db.select({ accountId: schema.accountRiskSnapshots.accountId, peakEquityCents: max(schema.accountRiskSnapshots.equityCents) }).from(schema.accountRiskSnapshots).where(and(eq(schema.accountRiskSnapshots.workspaceId, workspaceId), inArray(schema.accountRiskSnapshots.accountId, accountIds))).groupBy(schema.accountRiskSnapshots.accountId),
     db.select().from(schema.tradingOrders).where(and(eq(schema.tradingOrders.workspaceId, workspaceId), inArray(schema.tradingOrders.accountId, accountIds), eq(schema.tradingOrders.provider, provider))).orderBy(desc(schema.tradingOrders.lastUpdatedAt), desc(schema.tradingOrders.submittedAt)).limit(300),
     db.select().from(schema.tradeExecutions).where(and(eq(schema.tradeExecutions.workspaceId, workspaceId), inArray(schema.tradeExecutions.accountId, accountIds), eq(schema.tradeExecutions.provider, provider), isNull(schema.tradeExecutions.voidedAt))).orderBy(desc(schema.tradeExecutions.executedAt)).limit(300),
