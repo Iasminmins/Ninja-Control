@@ -145,10 +145,22 @@ function GridCharts({ months }: { months: GridMonth[] }) {
       const values = entries.map(select).filter((value): value is number => value !== null)
       return values.length ? values.reduce((sum, value) => sum + value, 0) : null
     }
-    return { month, longNet: sumAvailable((entry) => entry.longNet), shortNet: sumAvailable((entry) => entry.shortNet), net: sumAvailable((entry) => entry.net) }
+    const grossLoss = sumAvailable((entry) => entry.grossLoss)
+    return {
+      month,
+      longNet: sumAvailable((entry) => entry.longNet),
+      shortNet: sumAvailable((entry) => entry.shortNet),
+      net: sumAvailable((entry) => entry.net),
+      grossProfit: sumAvailable((entry) => entry.grossProfit),
+      grossLoss,
+      grossLossBelowZero: grossLoss === null ? null : -Math.abs(grossLoss),
+    }
   })
   const totalLong = months.reduce((sum, month) => sum + (month.longNet ?? 0), 0)
   const totalShort = months.reduce((sum, month) => sum + (month.shortNet ?? 0), 0)
+  const totalGrossProfit = rows.reduce((sum, month) => sum + (month.grossProfit ?? 0), 0)
+  const totalGrossLoss = rows.reduce((sum, month) => sum + Math.abs(month.grossLoss ?? 0), 0)
+  const totalReportedNet = rows.reduce((sum, month) => sum + (month.net ?? 0), 0)
   const drawdownRows = [...months].sort((a, b) => a.month.localeCompare(b.month)).map((month) => ({ ...month, drawdownMagnitude: month.maxDrawdown === null ? null : Math.abs(month.maxDrawdown) }))
   const axisMoney = (value: number) => {
     const amount = Number(value)
@@ -158,6 +170,7 @@ function GridCharts({ months }: { months: GridMonth[] }) {
       : `${sign}$${Math.abs(amount).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`
   }
   const directionName = (value: string) => value === 'longNet' ? 'Compras (Long)' : value === 'shortNet' ? 'Vendas (Short)' : 'Total reportado'
+  const grossResultName = (value: string) => value === 'grossProfit' ? 'Lucro bruto · trades positivos' : value === 'grossLossBelowZero' ? 'Perda bruta · trades negativos' : 'Líquido reportado pelo NinjaTrader'
   return <div className="grid gap-4 xl:grid-cols-2">
     <div className="rounded-2xl border border-white/[0.08] bg-[#101214] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.18)] sm:p-5">
       <div className="mb-4">
@@ -184,7 +197,42 @@ function GridCharts({ months }: { months: GridMonth[] }) {
         </ResponsiveContainer>
       </div>
     </div>
-    <div className="rounded-xl border border-white/[0.06] bg-black/10 p-4"><p className="mb-1 text-xs font-medium text-zinc-200">Perda máxima no mês (USD)</p><p className="mb-2 text-[10px] text-zinc-500">A barra sobe a partir de zero; quanto maior, maior o drawdown informado.</p><div className="h-[265px] min-w-0"><ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 520, height: 265 }}><BarChart data={drawdownRows}><CartesianGrid stroke="rgba(255,255,255,.07)" vertical={false} /><XAxis dataKey="month" tick={{ fill: '#71717a', fontSize: 9 }} tickFormatter={dateLabel} axisLine={false} tickLine={false} /><YAxis domain={[0, 'auto']} tick={{ fill: '#71717a', fontSize: 9 }} tickFormatter={(value) => `$${Number(value).toLocaleString('pt-BR')}`} axisLine={false} tickLine={false} width={64} /><Tooltip labelFormatter={(value) => dateLabel(String(value))} formatter={(value) => [money(Number(value)), 'Perda máxima no mês']} contentStyle={chartTooltip} /><ReferenceLine y={0} stroke="rgba(255,255,255,.25)" /><Bar dataKey="drawdownMagnitude" fill={red} radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div></div>
+    <div className="order-3 rounded-2xl border border-white/[0.08] bg-[#101214] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.18)] xl:col-span-2 sm:p-5">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold tracking-tight text-white">Lucro bruto, perdas e resultado final</p>
+          <p className="mt-1 text-[10px] text-zinc-500">Compare os ganhos e as perdas das operações com o valor líquido informado no relatório.</p>
+        </div>
+        <span className="rounded-full border border-white/[0.08] bg-white/[0.025] px-2.5 py-1 text-[9px] text-zinc-500">{rows.length} meses consolidados</span>
+      </div>
+      <div className="mb-4 grid gap-2 sm:grid-cols-3">
+        <div className="rounded-xl border border-[#b9f227]/15 bg-[#b9f227]/[0.045] px-3 py-2.5"><p className="text-[9px] font-medium uppercase tracking-[0.12em] text-[#b9f227]/70">Lucro bruto</p><p className="mt-1 font-mono text-sm font-semibold text-[#b9f227]">{money(totalGrossProfit)}</p><p className="mt-1 text-[9px] text-zinc-500">Soma dos trades positivos</p></div>
+        <div className="rounded-xl border border-rose-400/15 bg-rose-400/[0.045] px-3 py-2.5"><p className="text-[9px] font-medium uppercase tracking-[0.12em] text-rose-300/75">Perda bruta</p><p className="mt-1 font-mono text-sm font-semibold text-rose-300">{money(totalGrossLoss)}</p><p className="mt-1 text-[9px] text-zinc-500">Soma das perdas antes do líquido</p></div>
+        <div className={`rounded-xl border px-3 py-2.5 ${totalReportedNet < 0 ? 'border-rose-400/15 bg-rose-400/[0.045]' : 'border-blue-400/15 bg-blue-400/[0.045]'}`}><p className={`text-[9px] font-medium uppercase tracking-[0.12em] ${totalReportedNet < 0 ? 'text-rose-300/75' : 'text-blue-300/75'}`}>Líquido reportado</p><p className={`mt-1 font-mono text-sm font-semibold ${totalReportedNet < 0 ? 'text-rose-300' : 'text-blue-300'}`}>{money(totalReportedNet)}</p><p className="mt-1 text-[9px] text-zinc-500">Valor final registrado pelo NinjaTrader</p></div>
+      </div>
+      <div className="h-[320px] min-w-0">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 900, height: 320 }}>
+          <BarChart data={rows} barGap={5} barCategoryGap="24%" margin={{ top: 10, right: 12, bottom: 0, left: 4 }}>
+            <CartesianGrid stroke="rgba(255,255,255,.06)" vertical={false} />
+            <XAxis dataKey="month" tick={{ fill: '#858b93', fontSize: 10 }} tickFormatter={dateLabel} axisLine={{ stroke: 'rgba(255,255,255,.1)' }} tickLine={false} minTickGap={16} />
+            <YAxis tick={{ fill: '#71717a', fontSize: 10 }} tickFormatter={axisMoney} axisLine={false} tickLine={false} width={74} />
+            <Tooltip labelFormatter={(value) => dateLabel(String(value))} formatter={(value, name) => [money(Number(value)), grossResultName(String(name))]} contentStyle={chartTooltip} cursor={{ fill: 'rgba(255,255,255,.035)' }} />
+            <Legend formatter={(value) => grossResultName(String(value))} wrapperStyle={{ paddingTop: 10, fontSize: 10, color: '#a1a1aa' }} />
+            <ReferenceLine y={0} stroke="rgba(255,255,255,.32)" strokeWidth={1.2} />
+            <Bar dataKey="grossProfit" name="grossProfit" fill={green} radius={[4, 4, 0, 0]} maxBarSize={34} />
+            <Bar dataKey="grossLossBelowZero" name="grossLossBelowZero" fill={red} radius={[0, 0, 4, 4]} maxBarSize={34} />
+            <Line dataKey="net" name="net" type="monotone" stroke="#e4e4e7" strokeWidth={2} strokeDasharray="6 4" dot={{ r: 3, fill: '#101214', stroke: '#e4e4e7', strokeWidth: 1.5 }} activeDot={{ r: 5, fill: '#e4e4e7', stroke: '#101214', strokeWidth: 2 }} connectNulls={false} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 rounded-xl border border-white/[0.06] bg-black/10 px-3 py-2.5 text-[9px] leading-4 text-zinc-500">
+        <span><strong className="font-medium text-[#b9f227]">Barras verdes:</strong> ganhos brutos das operações vencedoras.</span>
+        <span><strong className="font-medium text-rose-300">Barras vermelhas:</strong> perdas brutas, abaixo de zero.</span>
+        <span><strong className="font-medium text-zinc-300">Linha pontilhada:</strong> lucro líquido reportado no CSV.</span>
+        <span>O líquido pode refletir perdas e custos do relatório; os valores não são recalculados.</span>
+      </div>
+    </div>
+    <div className="order-2 rounded-xl border border-white/[0.06] bg-black/10 p-4"><p className="mb-1 text-xs font-medium text-zinc-200">Perda máxima no mês (USD)</p><p className="mb-2 text-[10px] text-zinc-500">A barra sobe a partir de zero; quanto maior, maior o drawdown informado.</p><div className="h-[265px] min-w-0"><ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 520, height: 265 }}><BarChart data={drawdownRows}><CartesianGrid stroke="rgba(255,255,255,.07)" vertical={false} /><XAxis dataKey="month" tick={{ fill: '#71717a', fontSize: 9 }} tickFormatter={dateLabel} axisLine={false} tickLine={false} /><YAxis domain={[0, 'auto']} tick={{ fill: '#71717a', fontSize: 9 }} tickFormatter={(value) => `$${Number(value).toLocaleString('pt-BR')}`} axisLine={false} tickLine={false} width={64} /><Tooltip labelFormatter={(value) => dateLabel(String(value))} formatter={(value) => [money(Number(value)), 'Perda máxima no mês']} contentStyle={chartTooltip} /><ReferenceLine y={0} stroke="rgba(255,255,255,.25)" /><Bar dataKey="drawdownMagnitude" fill={red} radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div></div>
   </div>
 }
 
