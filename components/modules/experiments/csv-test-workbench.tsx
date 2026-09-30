@@ -177,8 +177,8 @@ function GridCharts({ months }: { months: GridMonth[] }) {
             <Tooltip labelFormatter={(value) => dateLabel(String(value))} formatter={(value, name) => [money(Number(value)), directionName(String(name))]} contentStyle={chartTooltip} cursor={{ fill: 'rgba(255,255,255,.035)' }} />
             <Legend formatter={(value) => directionName(String(value))} wrapperStyle={{ paddingTop: 8, fontSize: 10, color: '#a1a1aa' }} />
             <ReferenceLine y={0} stroke="rgba(255,255,255,.3)" strokeWidth={1.2} />
-            <Bar dataKey="longNet" name="longNet" radius={[4, 4, 0, 0]} maxBarSize={22}>{rows.map((row) => <Cell key={`${row.month}-long`} fill={(row.longNet ?? 0) < 0 ? red : '#60a5fa'} />)}</Bar>
-            <Bar dataKey="shortNet" name="shortNet" radius={[4, 4, 0, 0]} maxBarSize={22}>{rows.map((row) => <Cell key={`${row.month}-short`} fill={(row.shortNet ?? 0) < 0 ? red : green} />)}</Bar>
+            <Bar dataKey="longNet" name="longNet" fill="#60a5fa" radius={[4, 4, 0, 0]} maxBarSize={22}>{rows.map((row) => <Cell key={`${row.month}-long`} fill={(row.longNet ?? 0) < 0 ? red : '#60a5fa'} />)}</Bar>
+            <Bar dataKey="shortNet" name="shortNet" fill={green} radius={[4, 4, 0, 0]} maxBarSize={22}>{rows.map((row) => <Cell key={`${row.month}-short`} fill={(row.shortNet ?? 0) < 0 ? red : green} />)}</Bar>
             <Line dataKey="net" name="net" type="monotone" stroke="#e4e4e7" strokeWidth={1.8} strokeDasharray="5 4" dot={{ r: 2.5, fill: '#101214', stroke: '#e4e4e7', strokeWidth: 1.5 }} activeDot={{ r: 4, fill: '#e4e4e7', stroke: '#101214', strokeWidth: 2 }} connectNulls={false} />
           </BarChart>
         </ResponsiveContainer>
