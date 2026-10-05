@@ -21,11 +21,19 @@ function getStrategySeries(trades: SimulatorTrade[], simulation: SimulationResul
   let cumulative = 0
   let peak = 0
   let strategyMaxDrawdownCents = 0
+  let strategyWins = 0
+  let strategyLosses = 0
+  let strategyFlats = 0
+  let strategyGrossWinsCents = 0
+  let strategyGrossLossesCents = 0
   let accountBalanceCents = startBalanceCents
   let accountFloorCents = simulation.points[0]?.floorCents ?? startBalanceCents
   let accountDrawdownCents = 0
   const data = ordered.map((trade) => {
     cumulative += trade.pnlCents
+    if (trade.pnlCents > 0) { strategyWins += 1; strategyGrossWinsCents += trade.pnlCents }
+    else if (trade.pnlCents < 0) { strategyLosses += 1; strategyGrossLossesCents += Math.abs(trade.pnlCents) }
+    else strategyFlats += 1
     peak = Math.max(peak, cumulative)
     const strategyDrawdownCents = peak - cumulative
     strategyMaxDrawdownCents = Math.max(strategyMaxDrawdownCents, strategyDrawdownCents)
@@ -44,7 +52,17 @@ function getStrategySeries(trades: SimulatorTrade[], simulation: SimulationResul
       accountDrawdown: accountDrawdownCents,
     }
   })
-  return { data, strategyMaxDrawdownCents, strategyNetPnlCents: cumulative, strategyTradeCount: ordered.length }
+  return {
+    data,
+    strategyMaxDrawdownCents,
+    strategyNetPnlCents: cumulative,
+    strategyTradeCount: ordered.length,
+    strategyWins,
+    strategyLosses,
+    strategyFlats,
+    strategyWinRatePercent: ordered.length ? strategyWins / ordered.length * 100 : null,
+    strategyProfitFactor: strategyGrossLossesCents ? strategyGrossWinsCents / strategyGrossLossesCents : null,
+  }
 }
 
 function SummaryStat({ label, value, note, icon: Icon, tone = 'neutral' }: {
@@ -96,18 +114,18 @@ export function SimulatorResults({ simulation, metrics, granularity, sourceDescr
         </div>
         <div className="grid grid-cols-2 gap-2.5 xl:border-l xl:border-white/[0.08] xl:pl-6">
           <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3.5"><p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Resultado da conta</p><p className={`mt-2 whitespace-nowrap text-base font-semibold tabular-nums ${metrics.netPnlCents < 0 ? 'text-rose-300' : 'text-[#c7f36a]'}`}>{money(metrics.netPnlCents)}</p></div>
-          <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3.5"><p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Trades na conta</p><p className="mt-2 text-base font-semibold tabular-nums text-zinc-100">{metrics.count.toLocaleString('pt-BR')} <span className="text-xs font-normal text-zinc-500">/ {formatTradeCount}</span></p></div>
+          <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3.5"><p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Trades até o evento</p><p className="mt-2 text-base font-semibold tabular-nums text-zinc-100">{metrics.count.toLocaleString('pt-BR')} <span className="text-xs font-normal text-zinc-500">/ {formatTradeCount}</span></p></div>
           <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3.5"><p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">DD disponível</p><p className="mt-2 whitespace-nowrap text-base font-semibold tabular-nums text-zinc-100">{money(metrics.remainingBufferCents)}</p></div>
-          <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3.5"><p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Risco máximo</p><p className="mt-2 whitespace-nowrap text-base font-semibold tabular-nums text-zinc-100">{money(metrics.maxAppliedRiskCents)}</p></div>
+          <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3.5"><p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">DD da conta</p><p className="mt-2 whitespace-nowrap text-base font-semibold tabular-nums text-zinc-100">{money(metrics.maxDrawdownCents)}</p></div>
         </div>
       </div>
     </section>
 
     <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-      <SummaryStat label="Acerto" value={metrics.winRatePercent === null ? '—' : `${metrics.winRatePercent.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`} icon={Target} note={`${metrics.wins} ganhos · ${metrics.losses} perdas · ${metrics.flats} zerados`} tone="positive" />
-      <SummaryStat label="Profit factor" value={metrics.profitFactor === null ? '—' : metrics.profitFactor.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} icon={Gauge} note="Ganhos ÷ perdas da conta simulada" />
-      <SummaryStat label="DD da estratégia" value={money(strategy.strategyMaxDrawdownCents)} icon={TrendingDown} note={`${formatTradeCount} trades · P&L total ${money(strategy.strategyNetPnlCents)}`} tone="negative" />
-      <SummaryStat label="DD da conta" value={money(metrics.maxDrawdownCents)} icon={Activity} note={`${metrics.adjustedTrades} trade(s) redimensionados · até o evento`} tone="negative" />
+      <SummaryStat label="Resultado dos trades" value={money(strategy.strategyNetPnlCents)} icon={Activity} note="Estratégia · amostra completa" tone={strategy.strategyNetPnlCents >= 0 ? 'positive' : 'negative'} />
+      <SummaryStat label="Trades analisados" value={formatTradeCount} icon={Gauge} note={`${strategy.strategyWins} ganhos · ${strategy.strategyLosses} perdas · ${strategy.strategyFlats} zerados`} />
+      <SummaryStat label="Acerto da amostra" value={strategy.strategyWinRatePercent === null ? '—' : `${strategy.strategyWinRatePercent.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`} icon={Target} note={`Profit factor ${strategy.strategyProfitFactor === null ? '—' : strategy.strategyProfitFactor.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}`} tone="positive" />
+      <SummaryStat label="Maior DD observado" value={money(strategy.strategyMaxDrawdownCents)} icon={TrendingDown} note="Sequência completa da estratégia" tone="negative" />
     </div>
 
     {strategy.data.length ? <>
