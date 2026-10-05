@@ -284,19 +284,16 @@ export function AccountSimulatorScreen({ initial }: { initial: AccountSimulatorD
     setBusy(false)
   }
 
-  const tabButton = (tab: { id: Tab; label: string }) => <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} aria-current={activeTab === tab.id ? 'page' : undefined} className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-[11px] font-medium transition-colors ${activeTab === tab.id ? 'bg-[#b9f227]/10 text-[#c8f84a]' : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'}`}><span>{tab.label}</span>{tab.id === 'scenarios' && scenarios.length > 0 ? <span className="text-[9px] text-zinc-500">{scenarios.length}</span> : null}</button>
+  const tabButton = (tab: { id: Tab; label: string }) => <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} aria-current={activeTab === tab.id ? 'page' : undefined} className={`flex shrink-0 items-center gap-2 rounded-lg px-4 py-2.5 text-left text-xs font-semibold transition-colors ${activeTab === tab.id ? 'bg-[#b9f227]/10 text-[#c8f84a]' : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-100'}`}><span>{tab.label}</span>{tab.id === 'scenarios' && scenarios.length > 0 ? <span className="rounded-full bg-white/[0.08] px-2 py-0.5 text-[10px] text-zinc-300">{scenarios.length}</span> : null}</button>
 
   return <PageFrame eyebrow="HUNTER · SIMULAÇÃO" title="Simulador de gerenciamento" description="Analise arquivos NinjaTrader e veja como diferentes regras de conta e risco teriam se comportado na amostra." showDemoNotice={false} actions={<div className="flex flex-wrap items-center gap-2"><input aria-label="Nome do cenário" className={`${inputClass} w-48`} placeholder="Nome do cenário" value={scenarioName} onChange={(event) => setScenarioName(event.target.value)} /><PrimaryButton disabled={busy} onClick={() => void saveScenario()}><Save className="size-3.5" />{busy ? 'Salvando…' : activeScenarioId ? 'Salvar alterações' : 'Salvar cenário'}</PrimaryButton></div>}>
     {(error || feedback) && <p role={error ? 'alert' : 'status'} className={`mb-4 rounded-lg border p-3 text-[10px] leading-5 ${error ? 'border-rose-300/20 bg-rose-300/[0.04] text-rose-200' : 'border-white/[0.07] bg-white/[0.02] text-zinc-300'}`}>{error || feedback}</p>}
     <div className="mb-4 rounded-lg border border-amber-300/15 bg-amber-300/[0.03] p-3 text-[10px] leading-5 text-amber-100">Análise retrospectiva e simulação. Não prevê lucro nem garante aprovação; nenhum dado altera contas reais ou envia ordens.</div>
-    <div className="grid min-w-0 grid-cols-1 items-start gap-3 xl:grid-cols-[142px_minmax(0,1fr)_370px]">
-      <nav aria-label="Seções do simulador" className="rounded-xl border border-white/[0.07] bg-[#111315] p-2 xl:sticky xl:top-24">
-        <p className="px-3 pb-2 pt-1 text-[8px] font-semibold uppercase tracking-[0.18em] text-zinc-600">Hunter · Lab</p>
-        <div className="flex gap-1 overflow-x-auto xl:flex-col">{tabs.map(tabButton)}</div>
-        <div className="mt-3 hidden border-t border-white/[0.07] px-3 pt-3 xl:block"><p className="text-[9px] font-semibold text-zinc-300">Arquivos de teste</p><p className="mt-1 text-[8px] leading-4 text-zinc-600">Envie CSVs no Dashboard e eles ficam disponíveis na biblioteca.</p><p className="mt-2 break-all text-[8px] text-zinc-500">{files.length} arquivo(s) salvos</p></div>
-      </nav>
-
-      <section className="min-w-0 space-y-3">
+    <nav aria-label="Seções do simulador" className="mb-4 rounded-xl border border-white/[0.07] bg-[#111315] p-2">
+      <div className="flex gap-1 overflow-x-auto">{tabs.map(tabButton)}</div>
+    </nav>
+    <div className="grid min-w-0 grid-cols-1 items-start gap-4 2xl:grid-cols-[minmax(0,1fr)_minmax(400px,440px)]">
+      <section className="min-w-0 space-y-4">
         {activeTab === 'overview' && <>
           <SimulatorFilePicker files={files} selectedFileIds={selectedFileIds} onFilesChange={setFiles} onSelectionChange={setSelectedFileIds} onAnalysis={updateAnalysis} />
           {hsgFiles.length > 0 && !tradeFiles.length && <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-blue-300/15 bg-blue-300/[0.03] p-3 text-[10px] leading-5 text-zinc-300"><input type="checkbox" className="mt-1 accent-[#b9f227]" checked={convertHsg} onChange={(event) => setConvertHsg(event.target.checked)} /><span><strong>Converter Result_R do HSG em dólares usando o risco de referência.</strong> Desmarcado por padrão. HSG não informa P&amp;L em USD; esta conversão depende do risco configurado e serve apenas à simulação.</span></label>}
@@ -305,7 +302,7 @@ export function AccountSimulatorScreen({ initial }: { initial: AccountSimulatorD
             const result = mapTradeCsv(analysis, mappings[id] ?? analysis.autoMapping, dateOrder, rules.timezone)
             return <TradeColumnMapper key={id} analysis={analysis} mapping={mappings[id] ?? analysis.autoMapping} onChange={(mapping) => setMappings((current) => ({ ...current, [id]: mapping }))} validRows={result.trades.length} warnings={[...analysis.warnings, ...result.warnings]} />
           })}
-          <SimulatorResults simulation={simulation} metrics={metrics} granularity={granularity} sourceDescription={sourceDescription} startBalanceCents={rules.profile.startBalanceCents} targetCents={rules.profile.targetCents} />
+          <SimulatorResults simulation={simulation} metrics={metrics} granularity={granularity} sourceDescription={sourceDescription} sourceTrades={sourceTrades} startBalanceCents={rules.profile.startBalanceCents} targetCents={rules.profile.targetCents} />
         </>}
         {activeTab === 'months' && <div className="space-y-3"><SimulatorMonths rows={monthlyRows} granularity={granularity} /><SimulatorFilePicker files={files} selectedFileIds={selectedFileIds} onFilesChange={setFiles} onSelectionChange={setSelectedFileIds} onAnalysis={updateAnalysis} /></div>}
         {activeTab === 'settings' && <div className="space-y-3"><section className="rounded-xl border border-white/[0.07] bg-[#111315] p-4"><h2 className="text-sm font-semibold text-zinc-100">Dados e leitura dos arquivos</h2><p className="mt-1 text-[10px] leading-5 text-zinc-500">Escolha os CSVs no Dashboard. Aqui você confere o que o simulador conseguiu interpretar e ajusta o mapeamento das operações.</p><div className="mt-3 grid gap-2 text-[10px] sm:grid-cols-2"><p className="rounded-lg border border-white/[0.06] p-3 text-zinc-400">Fonte ativa <strong className="mt-1 block text-zinc-200">{sourceDescription}</strong></p><p className="rounded-lg border border-white/[0.06] p-3 text-zinc-400">Operações lidas <strong className="mt-1 block text-zinc-200">{sourceTrades.length.toLocaleString('pt-BR')}</strong></p><p className="rounded-lg border border-white/[0.06] p-3 text-zinc-400">Arquivos selecionados <strong className="mt-1 block text-zinc-200">{selectedAnalyses.length}</strong></p><p className="rounded-lg border border-white/[0.06] p-3 text-zinc-400">Formato do cálculo <strong className="mt-1 block text-zinc-200">{granularity === 'monthly' ? 'Resumo mensal · sequência intramês indisponível' : granularity === 'trade' ? 'Operação por operação' : 'Aguardando CSV'}</strong></p></div></section>
@@ -314,7 +311,7 @@ export function AccountSimulatorScreen({ initial }: { initial: AccountSimulatorD
         {activeTab === 'scenarios' && <SavedScenarios scenarios={scenarios} files={files.map(({ id, fileName }) => ({ id, fileName }))} activeId={activeScenarioId} onOpen={(scenario) => void openScenario(scenario)} onDuplicate={duplicateScenario} onDelete={(scenario) => void deleteScenario(scenario)} />}
       </section>
 
-      <aside aria-label="Configurações de gerenciamento" className="min-w-0 xl:sticky xl:top-24 xl:max-h-[calc(100vh-7rem)] xl:overflow-y-auto xl:pr-1">
+      <aside aria-label="Configurações de gerenciamento" className="min-w-0 2xl:sticky 2xl:top-24 2xl:max-h-[calc(100vh-7rem)] 2xl:overflow-y-auto 2xl:pr-1">
         <SimulatorRulesEditor rules={rules} onChange={setRules} dateOrder={dateOrder} onDateOrderChange={setDateOrder} canUseTradeRules={canUseTradeRules} />
       </aside>
     </div>
