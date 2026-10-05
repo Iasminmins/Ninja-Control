@@ -31,6 +31,10 @@ function hydrateRules(value: unknown): SimulatorRules {
   const rawProfile = isObject(input.profile) ? input.profile : {}
   const profileId: AccountProfileId = rawProfile.id === '150K' ? '150K' : '50K'
   const base = defaultSimulatorRules(profileId)
+  const profileAmount = (key: Exclude<keyof SimulatorRules['profile'], 'id'>, use150kFallback = false): number => {
+    const amount = Number(rawProfile[key])
+    return Number.isFinite(amount) && !(use150kFallback && profileId === '150K' && amount <= 0) ? amount : base.profile[key]
+  }
   const risk = isObject(input.riskByCategory) ? input.riskByCategory : {}
   const readRisk = (key: 'DIRECT' | 'ABSORPTION' | 'CONVENTIONAL') => {
     const row = isObject(risk[key]) ? risk[key] : {}
@@ -45,10 +49,10 @@ function hydrateRules(value: unknown): SimulatorRules {
   return {
     profile: {
       id: profileId,
-      startBalanceCents: Number.isFinite(Number(rawProfile.startBalanceCents)) ? Number(rawProfile.startBalanceCents) : base.profile.startBalanceCents,
-      targetCents: Number.isFinite(Number(rawProfile.targetCents)) ? Number(rawProfile.targetCents) : base.profile.targetCents,
-      maxLossCents: Number.isFinite(Number(rawProfile.maxLossCents)) ? Number(rawProfile.maxLossCents) : base.profile.maxLossCents,
-      payoutDetachCents: Number.isFinite(Number(rawProfile.payoutDetachCents)) ? Number(rawProfile.payoutDetachCents) : base.profile.payoutDetachCents,
+      startBalanceCents: profileAmount('startBalanceCents'),
+      targetCents: profileAmount('targetCents', true),
+      maxLossCents: profileAmount('maxLossCents', true),
+      payoutDetachCents: profileAmount('payoutDetachCents'),
     },
     drawdownRule, mode,
     timezone: typeof input.timezone === 'string' ? input.timezone : base.timezone,

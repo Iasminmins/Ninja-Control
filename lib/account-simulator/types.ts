@@ -89,7 +89,7 @@ export type MonthlySimulationRow = {
 
 export const defaultProfile = (id: AccountProfileId): AccountProfile => id === '50K'
   ? { id, startBalanceCents: 5_000_000, targetCents: 300_000, maxLossCents: 200_000, payoutDetachCents: 210_000 }
-  : { id, startBalanceCents: 15_000_000, targetCents: 0, maxLossCents: 0, payoutDetachCents: 0 }
+  : { id, startBalanceCents: 15_000_000, targetCents: 900_000, maxLossCents: 450_000, payoutDetachCents: 0 }
 
 const blankRisk = () => ({ enabled: false, riskCents: 50_000 })
 
