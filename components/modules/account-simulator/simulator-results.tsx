@@ -1,8 +1,8 @@
 'use client'
 
-import { Activity, CircleDollarSign, Gauge, Target, TrendingDown } from 'lucide-react'
+import { Activity, Gauge, Target, TrendingDown } from 'lucide-react'
 import { Area, AreaChart, CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { EmptyState, MetricTile, Panel, SectionHeading } from '@/components/workspace/primitives'
+import { EmptyState, Panel, SectionHeading } from '@/components/workspace/primitives'
 import type { SimulationMetrics, SimulationResult, SimulatorTrade } from '@/lib/account-simulator/types'
 
 const blue = '#60a5fa'
@@ -10,7 +10,7 @@ const teal = '#2dd4bf'
 const amber = '#fbbf24'
 const rose = '#fb7185'
 const money = (cents: number | null) => cents === null ? '—' : `US$ ${(cents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-const tooltip = { background: '#101214', border: '1px solid rgba(255,255,255,.16)', borderRadius: 10, color: '#f4f4f5', fontSize: 12 }
+const tooltip = { background: '#101214', border: '1px solid rgba(255,255,255,.16)', borderRadius: 12, color: '#f4f4f5', fontSize: 12 }
 const shortMoney = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { maximumFractionDigits: 0 })}`
 const dateLabel = (value: string) => new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'UTC' }).format(new Date(value))
 
@@ -47,7 +47,22 @@ function getStrategySeries(trades: SimulatorTrade[], simulation: SimulationResul
   return { data, strategyMaxDrawdownCents, strategyNetPnlCents: cumulative, strategyTradeCount: ordered.length }
 }
 
-export function SimulatorResults({ simulation, metrics, granularity, sourceDescription, sourceTrades, startBalanceCents, targetCents }: {
+function SummaryStat({ label, value, note, icon: Icon, tone = 'neutral' }: {
+  label: string
+  value: string
+  note: string
+  icon: typeof Activity
+  tone?: 'neutral' | 'positive' | 'negative'
+}) {
+  const color = tone === 'positive' ? 'text-[#c7f36a]' : tone === 'negative' ? 'text-rose-300' : 'text-zinc-100'
+  return <div className="min-w-0 rounded-xl border border-white/[0.07] bg-[#111416] p-4 transition-colors hover:border-white/[0.12] sm:p-5">
+    <div className="flex items-center gap-2.5"><span className="flex size-8 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.035] text-zinc-400"><Icon className="size-4" /></span><p className="text-xs font-medium leading-4 text-zinc-400">{label}</p></div>
+    <p className={`mt-4 whitespace-nowrap text-lg font-semibold tracking-tight sm:text-xl ${color}`}>{value}</p>
+    <p className="mt-1.5 min-h-8 text-[11px] leading-4 text-zinc-500">{note}</p>
+  </div>
+}
+
+export function SimulatorResults({ simulation, metrics, granularity, sourceDescription, sourceTrades, startBalanceCents, targetCents, accountLabel }: {
   simulation: SimulationResult
   metrics: SimulationMetrics
   granularity: 'trade' | 'monthly' | 'none'
@@ -55,31 +70,82 @@ export function SimulatorResults({ simulation, metrics, granularity, sourceDescr
   sourceTrades: SimulatorTrade[]
   startBalanceCents: number
   targetCents: number
+  accountLabel: string
 }) {
   const strategy = getStrategySeries(sourceTrades, simulation, startBalanceCents)
   const targetProgress = metrics.targetReached ? 100 : targetCents > 0 ? Math.min(100, Math.max(0, metrics.netPnlCents / targetCents * 100)) : 0
   const axis = (value: number) => shortMoney(value)
   const formatTradeCount = strategy.strategyTradeCount.toLocaleString('pt-BR')
-  return <div className="space-y-4">
-    {granularity === 'monthly' && <p className="rounded-lg border border-amber-300/20 bg-amber-300/[0.04] p-3 text-xs leading-5 text-amber-100">{sourceDescription} A curva da conta é uma estimativa por fechamento mensal; ela não revela a sequência de ganhos e perdas dentro de cada mês.</p>}
-    {simulation.warnings.length > 0 && <div className="space-y-2">{simulation.warnings.map((warning, index) => <p key={`${warning}-${index}`} className="rounded-lg border border-amber-300/15 bg-amber-300/[0.03] p-3 text-xs leading-5 text-amber-100">{warning}</p>)}</div>}
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <MetricTile label="Resultado líquido simulado" value={money(metrics.netPnlCents)} icon={CircleDollarSign} tone={metrics.netPnlCents < 0 ? 'negative' : 'positive'} note={granularity === 'monthly' ? 'Soma dos resultados reportados por mês' : 'Resultado da conta até a meta, quebra ou fim da amostra'} />
-      <MetricTile label="Trades considerados" value={String(metrics.count)} icon={Activity} note={`${metrics.wins} ganhos · ${metrics.losses} perdas · ${metrics.flats} zerados · ${formatTradeCount} na amostra`} />
-      <MetricTile label="Acerto" value={metrics.winRatePercent === null ? '—' : `${metrics.winRatePercent.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`} icon={Target} note="Trades positivos ÷ trades considerados" />
-      <MetricTile label="Profit factor" value={metrics.profitFactor === null ? '—' : metrics.profitFactor.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} icon={Gauge} note="Ganhos brutos ÷ perdas brutas da conta simulada" />
+  const statusLabel = metrics.targetReached ? 'Meta atingida' : metrics.breached ? 'Piso atingido' : strategy.strategyTradeCount ? 'Em andamento' : 'Aguardando arquivo'
+  const statusStyle = metrics.targetReached ? 'border-[#b9f227]/25 bg-[#b9f227]/[0.08] text-[#c7f36a]' : metrics.breached ? 'border-rose-300/20 bg-rose-300/[0.07] text-rose-200' : 'border-white/[0.1] bg-white/[0.04] text-zinc-300'
+  return <div className="space-y-5">
+    {granularity === 'monthly' && <p className="rounded-xl border border-amber-300/20 bg-amber-300/[0.04] p-4 text-xs leading-5 text-amber-100">{sourceDescription} A curva da conta é uma estimativa por fechamento mensal; ela não revela a sequência de ganhos e perdas dentro de cada mês.</p>}
+    {simulation.warnings.length > 0 && <div className="space-y-2">{simulation.warnings.map((warning, index) => <p key={`${warning}-${index}`} className="rounded-xl border border-amber-300/15 bg-amber-300/[0.03] p-4 text-xs leading-5 text-amber-100">{warning}</p>)}</div>}
+
+    <section className="relative overflow-hidden rounded-2xl border border-[#b9f227]/15 bg-[linear-gradient(120deg,rgba(185,242,39,0.085),rgba(17,19,21,0.98)_44%,rgba(17,19,21,1))] p-5 sm:p-7">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-center">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2"><span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#c7f36a]">Simulação da conta</span><span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${statusStyle}`}><span className="mr-1.5 inline-block size-1.5 rounded-full bg-current align-middle" />{statusLabel}</span></div>
+          <p className="mt-4 text-xs font-medium text-zinc-400">Saldo da conta · {accountLabel}</p>
+          <p className="mt-1 whitespace-nowrap text-3xl font-semibold tracking-[-0.04em] text-white sm:text-4xl">{money(metrics.finalBalanceCents)}</p>
+          <div className="mt-5 max-w-2xl">
+            <div className="mb-2 flex items-center justify-between gap-3 text-xs"><span className="font-medium text-zinc-300">Progresso da meta</span><span className="font-semibold tabular-nums text-[#d8f9a0]">{Math.round(targetProgress)}%</span></div>
+            <div className="h-2 overflow-hidden rounded-full bg-black/40 ring-1 ring-white/[0.06]"><div className={`h-full rounded-full transition-[width] duration-500 ${metrics.breached ? 'bg-rose-400' : 'bg-[#b9f227]'}`} style={{ width: `${targetProgress}%` }} /></div>
+            <p className="mt-2 text-[11px] leading-4 text-zinc-500">{metrics.targetReached ? 'A conta atingiu a meta; o saldo fica fixo enquanto a estratégia segue na amostra.' : metrics.breached ? 'O saldo tocou o piso configurado e a conta simulada parou.' : `Meta de ${money(targetCents)} · resultado atual ${money(metrics.netPnlCents)}.`}</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2.5 xl:border-l xl:border-white/[0.08] xl:pl-6">
+          <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3.5"><p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Resultado da conta</p><p className={`mt-2 whitespace-nowrap text-base font-semibold tabular-nums ${metrics.netPnlCents < 0 ? 'text-rose-300' : 'text-[#c7f36a]'}`}>{money(metrics.netPnlCents)}</p></div>
+          <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3.5"><p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Trades na conta</p><p className="mt-2 text-base font-semibold tabular-nums text-zinc-100">{metrics.count.toLocaleString('pt-BR')} <span className="text-xs font-normal text-zinc-500">/ {formatTradeCount}</span></p></div>
+          <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3.5"><p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">DD disponível</p><p className="mt-2 whitespace-nowrap text-base font-semibold tabular-nums text-zinc-100">{money(metrics.remainingBufferCents)}</p></div>
+          <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3.5"><p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Risco máximo</p><p className="mt-2 whitespace-nowrap text-base font-semibold tabular-nums text-zinc-100">{money(metrics.maxAppliedRiskCents)}</p></div>
+        </div>
+      </div>
+    </section>
+
+    <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+      <SummaryStat label="Acerto" value={metrics.winRatePercent === null ? '—' : `${metrics.winRatePercent.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`} icon={Target} note={`${metrics.wins} ganhos · ${metrics.losses} perdas · ${metrics.flats} zerados`} tone="positive" />
+      <SummaryStat label="Profit factor" value={metrics.profitFactor === null ? '—' : metrics.profitFactor.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} icon={Gauge} note="Ganhos ÷ perdas da conta simulada" />
+      <SummaryStat label="DD da estratégia" value={money(strategy.strategyMaxDrawdownCents)} icon={TrendingDown} note={`${formatTradeCount} trades · P&L total ${money(strategy.strategyNetPnlCents)}`} tone="negative" />
+      <SummaryStat label="DD da conta" value={money(metrics.maxDrawdownCents)} icon={Activity} note={`${metrics.adjustedTrades} trade(s) redimensionados · até o evento`} tone="negative" />
     </div>
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-      <MetricTile label="DD da estratégia · amostra" value={money(strategy.strategyMaxDrawdownCents)} icon={TrendingDown} tone="negative" note={`${formatTradeCount} trades · P&L ${money(strategy.strategyNetPnlCents)}`} />
-      <MetricTile label="DD da conta simulada" value={money(metrics.maxDrawdownCents)} icon={TrendingDown} tone="negative" note="Somente até o evento da conta" />
-      <MetricTile label="Saldo final da conta" value={money(metrics.finalBalanceCents)} icon={CircleDollarSign} note="Saldo inicial + resultado simulado" />
-      <MetricTile label="Buffer até o piso" value={money(metrics.remainingBufferCents)} icon={Gauge} tone={metrics.remainingBufferCents < 50_000 ? 'negative' : 'positive'} note="Saldo da conta menos o piso" />
-      <MetricTile label="Risco máximo aplicado" value={money(metrics.maxAppliedRiskCents)} icon={Activity} note={`${metrics.adjustedTrades} trade(s) redimensionados`} />
-    </div>
+
     {strategy.data.length ? <>
-      <Panel className="p-4 sm:p-5"><SectionHeading title="Estratégia e saldo da conta" description="Saldo em dólares. A estratégia mostra todos os trades; a conta simulada fica no nível da meta ou do piso após o evento." /><div className="mt-3 h-[380px] min-w-0 sm:h-[420px]"><ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 1000, height: 420 }}><LineChart data={strategy.data} margin={{ top: 12, right: 18, bottom: 4, left: 8 }}><CartesianGrid stroke="rgba(255,255,255,.09)" vertical={false} /><XAxis dataKey="at" tick={{ fill: '#a1a1aa', fontSize: 11 }} tickFormatter={dateLabel} minTickGap={36} axisLine={false} tickLine={false} /><YAxis tick={{ fill: '#a1a1aa', fontSize: 11 }} tickFormatter={axis} axisLine={false} tickLine={false} width={86} domain={['auto', 'auto']} /><Tooltip labelFormatter={(value) => new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'UTC' }).format(new Date(String(value)))} formatter={(value, name) => [money(Number(value)), name === 'strategyBalance' ? 'Estratégia · amostra completa' : name === 'accountBalance' ? 'Conta simulada' : 'Piso da conta']} contentStyle={tooltip} /><Legend formatter={(value) => value === 'strategyBalance' ? 'Estratégia · amostra completa' : value === 'accountBalance' ? 'Conta simulada' : 'Piso da conta'} wrapperStyle={{ fontSize: 12, paddingTop: 10 }} /><Line dataKey="strategyBalance" type="linear" stroke={teal} strokeWidth={2.5} dot={{ r: 2.5, fill: teal, stroke: '#111315', strokeWidth: 1 }} activeDot={{ r: 5 }} name="strategyBalance" /><Line dataKey="accountBalance" type="stepAfter" stroke={blue} strokeWidth={2.5} strokeDasharray="7 4" dot={false} activeDot={{ r: 5 }} name="accountBalance" /><Line dataKey="accountFloor" type="stepAfter" stroke={amber} strokeWidth={2} dot={false} name="accountFloor" /></LineChart></ResponsiveContainer></div></Panel>
-      <Panel className="p-4 sm:p-5"><SectionHeading title="Drawdown ao longo da amostra" description={`Compara o recuo da estratégia nos ${formatTradeCount} trades com o drawdown da conta até o evento.`} /><div className="mt-3 h-[300px] min-w-0 sm:h-[340px]"><ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 1000, height: 340 }}><AreaChart data={strategy.data} margin={{ top: 12, right: 18, bottom: 4, left: 8 }}><CartesianGrid stroke="rgba(255,255,255,.09)" vertical={false} /><XAxis dataKey="at" tick={{ fill: '#a1a1aa', fontSize: 11 }} tickFormatter={dateLabel} minTickGap={36} axisLine={false} tickLine={false} /><YAxis tick={{ fill: '#a1a1aa', fontSize: 11 }} tickFormatter={axis} axisLine={false} tickLine={false} width={86} /><Tooltip labelFormatter={(value) => new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'UTC' }).format(new Date(String(value)))} formatter={(value, name) => [money(Number(value)), name === 'strategyDrawdown' ? 'DD da estratégia' : 'DD da conta simulada']} contentStyle={tooltip} /><Legend formatter={(value) => value === 'strategyDrawdown' ? 'Estratégia · amostra completa' : 'Conta simulada · até o evento'} wrapperStyle={{ fontSize: 12, paddingTop: 10 }} /><ReferenceLine y={0} stroke="rgba(255,255,255,.35)" /><Area dataKey="strategyDrawdown" type="monotone" stroke={amber} fill={amber} fillOpacity={0.16} strokeWidth={2.5} name="strategyDrawdown" /><Line dataKey="accountDrawdown" type="stepAfter" stroke={rose} strokeWidth={2.5} dot={false} name="accountDrawdown" /></AreaChart></ResponsiveContainer></div></Panel>
+      <Panel className="overflow-hidden border-white/[0.08] p-4 sm:p-6">
+        <SectionHeading title="Estratégia e saldo da conta" description="A estratégia mostra todos os trades. A conta simulada para na meta ou no piso e permanece nesse nível." />
+        <div className="mt-4 h-[360px] min-w-0 sm:h-[440px]">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 1000, height: 440 }}>
+            <AreaChart data={strategy.data} margin={{ top: 12, right: 18, bottom: 4, left: 8 }}>
+              <defs><linearGradient id="strategyBalanceFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={teal} stopOpacity={0.24} /><stop offset="100%" stopColor={teal} stopOpacity={0.015} /></linearGradient></defs>
+              <CartesianGrid stroke="rgba(255,255,255,.075)" vertical={false} />
+              <XAxis dataKey="at" tick={{ fill: '#a1a1aa', fontSize: 11 }} tickFormatter={dateLabel} minTickGap={36} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#a1a1aa', fontSize: 11 }} tickFormatter={axis} axisLine={false} tickLine={false} width={88} domain={['auto', 'auto']} />
+              <Tooltip labelFormatter={(value) => new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'UTC' }).format(new Date(String(value)))} formatter={(value, name) => [money(Number(value)), name === 'strategyBalance' ? 'Estratégia · amostra completa' : name === 'accountBalance' ? 'Conta simulada' : 'Piso da conta']} contentStyle={tooltip} />
+              <Legend formatter={(value) => value === 'strategyBalance' ? 'Estratégia · amostra completa' : value === 'accountBalance' ? 'Conta simulada' : 'Piso da conta'} wrapperStyle={{ fontSize: 12, paddingTop: 12 }} />
+              <Area dataKey="strategyBalance" type="linear" stroke={teal} strokeWidth={2.5} fill="url(#strategyBalanceFill)" dot={{ r: 2.5, fill: teal, stroke: '#111315', strokeWidth: 1 }} activeDot={{ r: 5 }} name="strategyBalance" />
+              <Line dataKey="accountBalance" type="stepAfter" stroke={blue} strokeWidth={2.5} strokeDasharray="7 4" dot={false} activeDot={{ r: 5 }} name="accountBalance" />
+              <Line dataKey="accountFloor" type="stepAfter" stroke={amber} strokeWidth={2} dot={false} name="accountFloor" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </Panel>
+      <Panel className="overflow-hidden border-white/[0.08] p-4 sm:p-6">
+        <SectionHeading title="Drawdown ao longo da amostra" description={`Compara o recuo da estratégia nos ${formatTradeCount} trades com o drawdown da conta até o evento.`} />
+        <div className="mt-4 h-[280px] min-w-0 sm:h-[340px]">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 1000, height: 340 }}>
+            <AreaChart data={strategy.data} margin={{ top: 12, right: 18, bottom: 4, left: 8 }}>
+              <CartesianGrid stroke="rgba(255,255,255,.075)" vertical={false} />
+              <XAxis dataKey="at" tick={{ fill: '#a1a1aa', fontSize: 11 }} tickFormatter={dateLabel} minTickGap={36} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#a1a1aa', fontSize: 11 }} tickFormatter={axis} axisLine={false} tickLine={false} width={88} />
+              <Tooltip labelFormatter={(value) => new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'UTC' }).format(new Date(String(value)))} formatter={(value, name) => [money(Number(value)), name === 'strategyDrawdown' ? 'DD da estratégia' : 'DD da conta simulada']} contentStyle={tooltip} />
+              <Legend formatter={(value) => value === 'strategyDrawdown' ? 'Estratégia · amostra completa' : 'Conta simulada · até o evento'} wrapperStyle={{ fontSize: 12, paddingTop: 12 }} />
+              <ReferenceLine y={0} stroke="rgba(255,255,255,.3)" />
+              <Area dataKey="strategyDrawdown" type="monotone" stroke={amber} fill={amber} fillOpacity={0.14} strokeWidth={2.5} name="strategyDrawdown" />
+              <Line dataKey="accountDrawdown" type="stepAfter" stroke={rose} strokeWidth={2.5} dot={false} name="accountDrawdown" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </Panel>
     </> : <Panel className="p-6"><EmptyState title="Selecione um arquivo e leia os dados" description="A curva e as métricas aparecem depois de carregar uma fonte válida e configurar a conta simulada." /></Panel>}
-    <Panel className="p-4 sm:p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-sm font-semibold text-zinc-200">Progresso da meta</h2><p className="mt-1 text-xs text-zinc-400">{metrics.targetReached ? 'Meta atingida na sequência simulada.' : metrics.breached ? 'O piso configurado foi tocado.' : 'Resultado da conta comparado com a meta configurada.'}</p></div><span className="text-sm font-semibold text-zinc-200">{Math.round(targetProgress)}%</span></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-white/[0.08]"><div className={`h-full rounded-full ${metrics.breached ? 'bg-rose-400' : 'bg-[#b9f227]'}`} style={{ width: `${targetProgress}%` }} /></div><div className="mt-3 grid gap-3 text-xs text-zinc-400 sm:grid-cols-3"><p>Meta: <strong className="text-zinc-100">{money(targetCents)}</strong></p><p>Trades bloqueados pela trava diária: <strong className="text-zinc-100">{metrics.blockedByDailyLock}</strong></p><p>Trades removidos pelo Entry Market: <strong className="text-zinc-100">{metrics.skippedByEntryMarket}</strong></p></div></Panel>
   </div>
 }
