@@ -6,8 +6,9 @@ import { PageFrame, PrimaryButton } from '@/components/workspace/primitives'
 import { calculateSimulation, summarizeMonths } from '@/lib/account-simulator/calculations'
 import { defaultSimulatorRules, type AccountProfileId, type MonthlySimulationRow, type SimulationMetrics, type SimulatorRules, type SimulatorTrade } from '@/lib/account-simulator/types'
 import { mapTradeCsv, parseTradeTimestamp, type TradeColumnMapping, type TradeDateOrder } from '@/lib/account-simulator/trade-csv'
+import { parseNinjaTraderGridTradesCsv } from '@/lib/account-simulator/ninjatrader-grid-csv'
 import type { AccountSimulatorData } from '@/lib/account-simulator/server'
-import { parseExperimentCsv, type CsvAnalysis, type GridMonth, type HsgSignal } from '@/lib/experiments/csv-analysis'
+import type { CsvAnalysis, GridMonth, HsgSignal } from '@/lib/experiments/csv-analysis'
 import { SavedScenarios } from './saved-scenarios'
 import { SimulatorFilePicker, type SimulatorFile } from './simulator-file-picker'
 import { SimulatorMonths } from './simulator-months'
@@ -232,7 +233,7 @@ export function AccountSimulatorScreen({ initial }: { initial: AccountSimulatorD
         const response = await fetch(`/api/experiment-csv-files/${id}`, { cache: 'no-store' })
         if (!response.ok) throw new Error('Fonte indisponível.')
         const file = files.find((item) => item.id === id)!
-        parsed[id] = parseExperimentCsv(file.fileName, await response.text())
+        parsed[id] = parseNinjaTraderGridTradesCsv(file.fileName, await response.text())
         if (parsed[id].kind === 'trades' && !storedMappings[id]) storedMappings[id] = parsed[id].autoMapping
       } catch (cause) { errors.push(`${files.find((item) => item.id === id)?.fileName ?? id}: ${cause instanceof Error ? cause.message : 'erro ao reabrir fonte.'}`) }
     }
@@ -275,7 +276,7 @@ export function AccountSimulatorScreen({ initial }: { initial: AccountSimulatorD
         const file = files.find((item) => item.id === id)!
         const response = await fetch(`/api/experiment-csv-files/${id}`, { cache: 'no-store' })
         if (!response.ok) throw new Error('Fonte indisponível.')
-        parsed[id] = parseExperimentCsv(file.fileName, await response.text())
+        parsed[id] = parseNinjaTraderGridTradesCsv(file.fileName, await response.text())
       } catch (cause) { errors.push(`${files.find((file) => file.id === id)?.fileName ?? id}: ${cause instanceof Error ? cause.message : 'erro ao abrir a fonte.'}`) }
     }
     setAnalyses((current) => ({ ...current, ...parsed }))

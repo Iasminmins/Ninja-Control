@@ -28,14 +28,14 @@ export type TradeCsvAnalysis = {
 export type TradeDateOrder = 'auto' | 'dmy' | 'mdy'
 
 const headerAliases: Record<keyof Omit<TradeColumnMapping, 'pnlIncludesCosts'>, string[]> = {
-  timestamp: ['timestamp', 'exit time', 'exittime', 'closed time', 'close time', 'data hora saida', 'data hora fechamento', 'date time'],
+  timestamp: ['timestamp', 'exit time', 'exittime', 'closed time', 'close time', 'hora saida', 'data hora saida', 'data hora fechamento', 'date time'],
   date: ['date', 'data', 'exit date', 'closed date', 'close date', 'data saida', 'data fechamento'],
   time: ['time', 'hora', 'exit clock', 'hora saida', 'hora fechamento'],
   pnl: ['net profit', 'profit loss', 'profitloss', 'pnl', 'profit', 'lucro liquido', 'resultado liquido', 'resultado', 'lucro'],
   commission: ['commission', 'commissions', 'comissao', 'corretagem'],
   slippage: ['slippage', 'deslizamento'],
-  direction: ['direction', 'side', 'market position', 'market pos', 'direcao', 'lado'],
-  riskCategory: ['entry family', 'entry category', 'risk category', 'entryfamily', 'categoria entrada'],
+  direction: ['direction', 'side', 'market position', 'market pos', 'pos mercado', 'direcao', 'lado'],
+  riskCategory: ['entry family', 'entry category', 'risk category', 'entryfamily', 'entrada', 'categoria entrada'],
   entryMarket: ['entry market', 'entrymarket', 'market entry', 'entrada mercado'],
   originalRisk: ['original risk', 'risk amount', 'risk dollars', 'risk usd', 'risco original', 'risco usd'],
   exitReason: ['exit reason', 'exitname', 'exit name', 'motivo saida', 'saida'],
@@ -143,16 +143,16 @@ export function parseTradeTimestamp(value: string, dateOrder: TradeDateOrder, ti
 
 function mapCategory(value: string): RiskCategory | null {
   const normalized = normalizeHeader(value)
-  if (['direta', 'direct'].includes(normalized)) return 'DIRECT'
-  if (['absorcao', 'absorption'].includes(normalized)) return 'ABSORPTION'
-  if (['convencional', 'conventional'].includes(normalized)) return 'CONVENTIONAL'
+  if (normalized === 'direta' || normalized.endsWith('hunter direta')) return 'DIRECT'
+  if (normalized === 'absorcao' || normalized.endsWith('hunter absorcao')) return 'ABSORPTION'
+  if (normalized === 'convencional' || normalized.endsWith('hunter convencional')) return 'CONVENTIONAL'
   return null
 }
 
 function mapDirection(value: string): 'BUY' | 'SELL' | null {
   const normalized = normalizeHeader(value)
-  if (/\b(buy|long|compra|comprado)\b/.test(normalized)) return 'BUY'
-  if (/\b(sell|short|venda|vendido)\b/.test(normalized)) return 'SELL'
+  if (/\b(buy|long|compra|comprad[oa])\b/.test(normalized)) return 'BUY'
+  if (/\b(sell|short|venda|vendid[oa])\b/.test(normalized)) return 'SELL'
   return null
 }
 
