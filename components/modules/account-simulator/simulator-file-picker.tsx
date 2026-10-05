@@ -52,47 +52,65 @@ export function SimulatorFilePicker({ files, selectedFileIds, onFilesChange, onS
     } finally { setBusyId('') }
   }
 
-  async function addFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.currentTarget.files?.[0]
+  async function addFiles(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFiles = Array.from(event.currentTarget.files ?? [])
     event.currentTarget.value = ''
-    if (!file) return
-    setError(''); setMessage('Validando o arquivo…'); setBusyId('upload')
-    try {
-      if (!file.name.toLowerCase().endsWith('.csv') || file.size > 25 * 1024 * 1024) throw new Error('Selecione um CSV de até 25 MB.')
-      const analysis = parseNinjaTraderGridTradesCsv(file.name, await file.text())
-      let uploadPrefix = prefix
-      if (!uploadPrefix) {
-        const response = await fetch('/api/experiment-csv-files', { cache: 'no-store' })
-        const library = await response.json().catch(() => ({})) as { uploadPrefix?: string; error?: string }
-        if (!response.ok || !library.uploadPrefix) throw new Error(library.error ?? 'Armazenamento não configurado.')
-        uploadPrefix = library.uploadPrefix
-        setPrefix(uploadPrefix)
-      }
-      const id = crypto.randomUUID()
-      const safeName = file.name.replace(/[^\p{L}\p{N}._ -]/gu, '_').slice(0, 255)
-      setMessage(`Salvando ${file.name}…`)
-      await upload(`${uploadPrefix}${id}-${safeName}`, file, {
-        access: 'private', contentType: 'text/csv', handleUploadUrl: '/api/experiment-csv-files/upload',
-        clientPayload: JSON.stringify({ fileId: id, fileName: file.name }), multipart: file.size > 4.5 * 1024 * 1024,
-      })
-      const deadline = Date.now() + 15_000
-      let saved: SimulatorFile | undefined
-      while (Date.now() < deadline && !saved) {
-        const response = await fetch('/api/experiment-csv-files', { cache: 'no-store' })
-        const library = await response.json().catch(() => ({})) as { files?: SimulatorFile[]; uploadPrefix?: string; error?: string }
-        if (!response.ok || !Array.isArray(library.files)) throw new Error(library.error ?? 'Não foi possível confirmar o CSV salvo.')
-        setPrefix(library.uploadPrefix ?? uploadPrefix)
-        onFilesChange(library.files)
-        saved = library.files.find((item) => item.id === id)
-        if (!saved) await new Promise((resolve) => window.setTimeout(resolve, 500))
-      }
-      if (!saved) throw new Error('O upload terminou, mas o registro ainda não apareceu na biblioteca. Atualize a lista antes de reenviar.')
-      onAnalysis(saved.id, analysis)
-      onSelectionChange([...new Set([...selectedFileIds, saved.id])])
-      setMessage(`${file.name} salvo e selecionado para simulação.`)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Não foi possível enviar o arquivo.')
+    if (!selectedFiles.length) return
+    if (selectedFiles.length > 100) {
+      setError('Selecione até 100 arquivos por vez.')
       setMessage('')
+      return
+    }
+    setError(''); setMessage(''); setBusyId('upload')
+    let uploadPrefix = prefix
+    const uploadedIds: string[] = []
+    const failures: string[] = []
+    try {
+      for (const [index, file] of selectedFiles.entries()) {
+        setMessage(`${index + 1}/${selectedFiles.length} · Validando ${file.name}…`)
+        try {
+          if (!file.name.toLowerCase().endsWith('.csv') || file.size > 25 * 1024 * 1024) throw new Error('Selecione um CSV de até 25 MB.')
+          const analysis = parseNinjaTraderGridTradesCsv(file.name, await file.text())
+          if (!uploadPrefix) {
+            const response = await fetch('/api/experiment-csv-files', { cache: 'no-store' })
+            const library = await response.json().catch(() => ({})) as { uploadPrefix?: string; error?: string }
+            if (!response.ok || !library.uploadPrefix) throw new Error(library.error ?? 'Armazenamento não configurado.')
+            uploadPrefix = library.uploadPrefix
+            setPrefix(uploadPrefix)
+          }
+          const id = crypto.randomUUID()
+          const safeName = file.name.replace(/[^\p{L}\p{N}._ -]/gu, '_').slice(0, 255)
+          setMessage(`${index + 1}/${selectedFiles.length} · Enviando ${file.name}…`)
+          await upload(`${uploadPrefix}${id}-${safeName}`, file, {
+            access: 'private', contentType: 'text/csv', handleUploadUrl: '/api/experiment-csv-files/upload',
+            clientPayload: JSON.stringify({ fileId: id, fileName: file.name }), multipart: file.size > 4.5 * 1024 * 1024,
+          })
+          const deadline = Date.now() + 15_000
+          let saved: SimulatorFile | undefined
+          while (Date.now() < deadline && !saved) {
+            const response = await fetch('/api/experiment-csv-files', { cache: 'no-store' })
+            const library = await response.json().catch(() => ({})) as { files?: SimulatorFile[]; uploadPrefix?: string; error?: string }
+            if (!response.ok || !Array.isArray(library.files)) throw new Error(library.error ?? 'Não foi possível confirmar o CSV salvo.')
+            setPrefix(library.uploadPrefix ?? uploadPrefix)
+            onFilesChange(library.files)
+            saved = library.files.find((item) => item.id === id)
+            if (!saved) await new Promise((resolve) => window.setTimeout(resolve, 500))
+          }
+          if (!saved) throw new Error('O upload terminou, mas o registro ainda não apareceu na biblioteca. Atualize a lista antes de reenviar.')
+          onAnalysis(saved.id, analysis)
+          uploadedIds.push(saved.id)
+        } catch (cause) {
+          failures.push(`${file.name}: ${cause instanceof Error ? cause.message : 'não foi possível enviar o arquivo.'}`)
+        }
+      }
+      if (uploadedIds.length) onSelectionChange([...new Set([...selectedFileIds, ...uploadedIds])])
+      if (failures.length) {
+        const details = failures.slice(0, 3).join(' · ')
+        setError(`${uploadedIds.length} enviado(s). Falhas: ${details}${failures.length > 3 ? ` · mais ${failures.length - 3} arquivo(s)` : ''}`)
+        setMessage('')
+      } else {
+        setMessage(`${uploadedIds.length} CSV(s) salvo(s) e selecionado(s) para simulação.`)
+      }
     } finally { setBusyId('') }
   }
 
@@ -111,7 +129,7 @@ export function SimulatorFilePicker({ files, selectedFileIds, onFilesChange, onS
   }
 
   return <section className="rounded-xl border border-white/[0.07] bg-[#111315] p-4 sm:p-5">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-sm font-semibold text-zinc-100">Arquivos para simular</h2><p className="mt-1 text-[10px] leading-5 text-zinc-500">Aceita somente o CSV de trades individuais exportado pelo NinjaTrader Grid, no formato do arquivo de exemplo.</p></div><div><input ref={input} type="file" accept=".csv,text/csv" onChange={(event) => void addFile(event)} className="sr-only" /><button type="button" disabled={Boolean(busyId)} onClick={() => input.current?.click()} className="primary-button min-h-9 px-3 text-[10px] disabled:opacity-50"><Upload className="size-3.5" />Enviar CSV</button></div></div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-sm font-semibold text-zinc-100">Arquivos para simular</h2><p className="mt-1 text-[10px] leading-5 text-zinc-500">Aceita CSVs de trades individuais do NinjaTrader Grid. Selecione até 100 arquivos; cada um pode ter até 25 MB.</p></div><div><input ref={input} type="file" accept=".csv,text/csv" multiple onChange={(event) => void addFiles(event)} className="sr-only" /><button type="button" disabled={Boolean(busyId)} onClick={() => input.current?.click()} className="primary-button min-h-9 px-3 text-[10px] disabled:opacity-50"><Upload className="size-3.5" />Enviar CSVs</button></div></div>
     {(error || message) && <p role={error ? 'alert' : 'status'} className={`mt-3 rounded-lg border p-3 text-[10px] leading-5 ${error ? 'border-rose-300/20 bg-rose-300/[0.04] text-rose-200' : 'border-white/[0.06] bg-white/[0.02] text-zinc-400'}`}>{error || message}</p>}
     {files.length ? <div className="mt-4 space-y-2">{files.map((file) => {
       const selected = selectedFileIds.includes(file.id)
