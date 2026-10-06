@@ -129,6 +129,18 @@ export function AccountSimulatorScreen({ initial }: { initial: AccountSimulatorD
   const tradeFiles = selectedAnalyses.filter((item): item is { id: string; analysis: Extract<CsvAnalysis, { kind: 'trades' }> } => item.analysis.kind === 'trades')
   const hsgFiles = selectedAnalyses.filter((item): item is { id: string; analysis: Extract<CsvAnalysis, { kind: 'hsg' }> } => item.analysis.kind === 'hsg')
   const gridFiles = selectedAnalyses.filter((item): item is { id: string; analysis: Extract<CsvAnalysis, { kind: 'grid' }> } => item.analysis.kind === 'grid')
+  const tradeMappingGroups = (() => {
+    const groups = new Map<string, typeof tradeFiles>()
+    for (const file of tradeFiles) {
+      const signature = JSON.stringify([...file.analysis.headers].sort())
+      groups.set(signature, [...(groups.get(signature) ?? []), file])
+    }
+    return [...groups].map(([signature, groupFiles]) => ({
+      signature,
+      files: groupFiles,
+      mapping: groupFiles.map(({ id }) => mappings[id]).find((value): value is TradeColumnMapping => Boolean(value)) ?? groupFiles[0].analysis.autoMapping,
+    }))
+  })()
 
   const mapped = useMemo(() => {
     const trades: SimulatorTrade[] = []
@@ -183,6 +195,10 @@ export function AccountSimulatorScreen({ initial }: { initial: AccountSimulatorD
   function updateAnalysis(id: string, analysis: CsvAnalysis) {
     setAnalyses((current) => ({ ...current, [id]: analysis }))
     if (analysis.kind === 'trades') setMappings((current) => ({ ...current, [id]: current[id] ?? analysis.autoMapping }))
+  }
+
+  function updateTradeMappingGroup(fileIds: string[], mapping: TradeColumnMapping) {
+    setMappings((current) => ({ ...current, ...Object.fromEntries(fileIds.map((id) => [id, mapping])) }))
   }
 
   function serializedConfiguration() {
@@ -301,16 +317,22 @@ export function AccountSimulatorScreen({ initial }: { initial: AccountSimulatorD
         {activeTab === 'overview' && <>
           <SimulatorFilePicker files={files} selectedFileIds={selectedFileIds} onFilesChange={setFiles} onSelectionChange={setSelectedFileIds} onAnalysis={updateAnalysis} />
           {hsgFiles.length > 0 && !tradeFiles.length && <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-blue-300/15 bg-blue-300/[0.03] p-3 text-[10px] leading-5 text-zinc-300"><input type="checkbox" className="mt-1 accent-[#b9f227]" checked={convertHsg} onChange={(event) => setConvertHsg(event.target.checked)} /><span><strong>Converter Result_R do HSG em dólares usando o risco de referência.</strong> Desmarcado por padrão. HSG não informa P&amp;L em USD; esta conversão depende do risco configurado e serve apenas à simulação.</span></label>}
-          {selectedFileIds.length > 0 && <div className="rounded-lg border border-white/[0.06] bg-black/10 p-3 text-[9px] text-zinc-500">{selectedAnalyses.length} arquivo(s) lido(s) · {selectedFileIds.length} selecionado(s){missingFileCount > 0 ? ` · ${missingFileCount} fonte(s) indisponível(is)` : ''}{granularity === 'monthly' ? ' · cálculo estimado por fechamento mensal' : granularity === 'trade' ? ' · sequência por operação' : ''}</div>}
-          {tradeFiles.map(({ id, analysis }) => {
-            const result = mapTradeCsv(analysis, mappings[id] ?? analysis.autoMapping, dateOrder, rules.timezone)
-            return <TradeColumnMapper key={id} analysis={analysis} mapping={mappings[id] ?? analysis.autoMapping} onChange={(mapping) => setMappings((current) => ({ ...current, [id]: mapping }))} validRows={result.trades.length} warnings={[...analysis.warnings, ...result.warnings]} />
-          })}
+          {selectedFileIds.length > 0 && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-[#111416] px-4 py-3"><div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs"><span className="font-medium text-zinc-200">{selectedAnalyses.length} arquivo(s) na base</span><span className="text-zinc-400">{sourceTrades.length.toLocaleString('pt-BR')} {granularity === 'monthly' ? 'período(s)' : 'operações'} reconhecidas</span>{missingFileCount > 0 && <span className="text-amber-200">{missingFileCount} fonte(s) indisponível(is)</span>}</div><button type="button" onClick={() => setActiveTab('settings')} className="text-xs font-medium text-[#c7f36a] transition hover:text-white">Revisar leitura dos arquivos</button></div>}
           <SimulatorResults simulation={simulation} metrics={metrics} granularity={granularity} sourceDescription={sourceDescription} sourceTrades={sourceTrades} startBalanceCents={rules.profile.startBalanceCents} targetCents={rules.profile.targetCents} accountLabel={`${rules.profile.id} · ${rules.mode === 'evaluation' ? 'Avaliação' : 'Conta PA'}`} />
         </>}
         {activeTab === 'months' && <div className="space-y-3"><SimulatorMonths rows={monthlyRows} granularity={granularity} /><SimulatorFilePicker files={files} selectedFileIds={selectedFileIds} onFilesChange={setFiles} onSelectionChange={setSelectedFileIds} onAnalysis={updateAnalysis} /></div>}
-        {activeTab === 'settings' && <div className="space-y-3"><section className="rounded-xl border border-white/[0.07] bg-[#111315] p-4"><h2 className="text-sm font-semibold text-zinc-100">Dados e leitura dos arquivos</h2><p className="mt-1 text-[10px] leading-5 text-zinc-500">Escolha os CSVs no Dashboard. Aqui você confere o que o simulador conseguiu interpretar e ajusta o mapeamento das operações.</p><div className="mt-3 grid gap-2 text-[10px] sm:grid-cols-2"><p className="rounded-lg border border-white/[0.06] p-3 text-zinc-400">Fonte ativa <strong className="mt-1 block text-zinc-200">{sourceDescription}</strong></p><p className="rounded-lg border border-white/[0.06] p-3 text-zinc-400">Operações lidas <strong className="mt-1 block text-zinc-200">{sourceTrades.length.toLocaleString('pt-BR')}</strong></p><p className="rounded-lg border border-white/[0.06] p-3 text-zinc-400">Arquivos selecionados <strong className="mt-1 block text-zinc-200">{selectedAnalyses.length}</strong></p><p className="rounded-lg border border-white/[0.06] p-3 text-zinc-400">Formato do cálculo <strong className="mt-1 block text-zinc-200">{granularity === 'monthly' ? 'Resumo mensal · sequência intramês indisponível' : granularity === 'trade' ? 'Operação por operação' : 'Aguardando CSV'}</strong></p></div></section>
-          {tradeFiles.map(({ id, analysis }) => { const result = mapTradeCsv(analysis, mappings[id] ?? analysis.autoMapping, dateOrder, rules.timezone); return <TradeColumnMapper key={id} analysis={analysis} mapping={mappings[id] ?? analysis.autoMapping} onChange={(mapping) => setMappings((current) => ({ ...current, [id]: mapping }))} validRows={result.trades.length} warnings={[...analysis.warnings, ...result.warnings]} /> })}
+        {activeTab === 'settings' && <div className="space-y-3"><section className="rounded-xl border border-white/[0.07] bg-[#111315] p-4"><h2 className="text-sm font-semibold text-zinc-100">Dados e leitura dos arquivos</h2><p className="mt-1 text-[10px] leading-5 text-zinc-500">A leitura do NinjaTrader Grid é detectada automaticamente. Revise abaixo uma vez por formato de colunas; arquivos com a mesma estrutura compartilham o mapeamento.</p><div className="mt-3 grid gap-2 text-[10px] sm:grid-cols-2"><p className="rounded-lg border border-white/[0.06] p-3 text-zinc-400">Fonte ativa <strong className="mt-1 block text-zinc-200">{sourceDescription}</strong></p><p className="rounded-lg border border-white/[0.06] p-3 text-zinc-400">Operações lidas <strong className="mt-1 block text-zinc-200">{sourceTrades.length.toLocaleString('pt-BR')}</strong></p><p className="rounded-lg border border-white/[0.06] p-3 text-zinc-400">Arquivos selecionados <strong className="mt-1 block text-zinc-200">{selectedAnalyses.length}</strong></p><p className="rounded-lg border border-white/[0.06] p-3 text-zinc-400">Formato do cálculo <strong className="mt-1 block text-zinc-200">{granularity === 'monthly' ? 'Resumo mensal · sequência intramês indisponível' : granularity === 'trade' ? 'Operação por operação' : 'Aguardando CSV'}</strong></p></div></section>
+          {tradeMappingGroups.map((group) => {
+            const files = group.files.map(({ id, analysis }) => ({ id, analysis, result: mapTradeCsv(analysis, group.mapping, dateOrder, rules.timezone) }))
+            const validRows = files.reduce((sum, file) => sum + file.result.trades.length, 0)
+            const fileNames = files.map(({ analysis }) => analysis.fileName)
+            const warnings = files.flatMap(({ analysis, result }) => [...analysis.warnings, ...result.warnings].map((warning) => `${analysis.fileName}: ${warning}`))
+            return <details key={group.signature} className="group rounded-xl border border-white/[0.08] bg-[#111315] open:border-[#b9f227]/20">
+              <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 p-4"><span className="min-w-0"><span className="block text-xs font-semibold text-zinc-100">Mapeamento compartilhado</span><span className="mt-1 block truncate text-[10px] text-zinc-500">{fileNames.slice(0, 2).join(' · ')}{fileNames.length > 2 ? ` · +${fileNames.length - 2} arquivo(s)` : ''}</span></span><span className="flex shrink-0 items-center gap-3"><span className="text-[10px] text-zinc-400">{fileNames.length} arquivo(s) · {validRows} operações válidas</span><span className="text-zinc-500 transition-transform group-open:rotate-180">⌄</span></span></summary>
+              <div className="border-t border-white/[0.06] px-4 pb-4"><TradeColumnMapper analysis={group.files[0].analysis} mapping={group.mapping} onChange={(mapping) => updateTradeMappingGroup(group.files.map(({ id }) => id), mapping)} validRows={validRows} warnings={warnings} /></div>
+            </details>
+          })}
+          {tradeFiles.length === 0 && <p className="rounded-xl border border-dashed border-white/10 p-5 text-center text-xs text-zinc-500">Selecione um CSV de trades individuais no Dashboard para revisar o mapeamento.</p>}
           {granularity === 'monthly' && <p className="rounded-lg border border-amber-300/15 bg-amber-300/[0.03] p-3 text-[10px] leading-5 text-amber-100">CSV mensal informa resultado agregado. Regras por risco de entrada, Entry Market, trava diária e Tomahawk exigem operações individuais.</p>}</div>}
         {activeTab === 'scenarios' && <SavedScenarios scenarios={scenarios} files={files.map(({ id, fileName }) => ({ id, fileName }))} activeId={activeScenarioId} onOpen={(scenario) => void openScenario(scenario)} onDuplicate={duplicateScenario} onDelete={(scenario) => void deleteScenario(scenario)} />}
       </section>
