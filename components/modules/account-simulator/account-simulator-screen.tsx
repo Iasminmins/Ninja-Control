@@ -36,6 +36,7 @@ function hydrateRules(value: unknown): SimulatorRules {
     return Number.isFinite(amount) && !(use150kFallback && profileId === '150K' && amount <= 0) ? amount : base.profile[key]
   }
   const risk = isObject(input.riskByCategory) ? input.riskByCategory : {}
+  const included = isObject(input.includedCategories) ? input.includedCategories : {}
   const readRisk = (key: 'DIRECT' | 'ABSORPTION' | 'CONVENTIONAL') => {
     const row = isObject(risk[key]) ? risk[key] : {}
     return { enabled: typeof row.enabled === 'boolean' ? row.enabled : base.riskByCategory[key].enabled, riskCents: Number.isFinite(Number(row.riskCents)) ? Number(row.riskCents) : base.riskByCategory[key].riskCents }
@@ -57,6 +58,11 @@ function hydrateRules(value: unknown): SimulatorRules {
     drawdownRule, mode,
     timezone: typeof input.timezone === 'string' ? input.timezone : base.timezone,
     referenceRiskCents: Number.isFinite(Number(input.referenceRiskCents)) ? Number(input.referenceRiskCents) : base.referenceRiskCents,
+    includedCategories: {
+      DIRECT: typeof included.DIRECT === 'boolean' ? included.DIRECT : base.includedCategories.DIRECT,
+      ABSORPTION: typeof included.ABSORPTION === 'boolean' ? included.ABSORPTION : base.includedCategories.ABSORPTION,
+      CONVENTIONAL: typeof included.CONVENTIONAL === 'boolean' ? included.CONVENTIONAL : base.includedCategories.CONVENTIONAL,
+    },
     riskByCategory: { DIRECT: readRisk('DIRECT'), ABSORPTION: readRisk('ABSORPTION'), CONVENTIONAL: readRisk('CONVENTIONAL') },
     entryMarket: { enabled: entryMarket.enabled === true, allowBuy: entryMarket.allowBuy !== false, allowSell: entryMarket.allowSell !== false },
     dailyLoss: { enabled: dailyLoss.enabled === true, maxLossCents: Number.isFinite(Number(dailyLoss.maxLossCents)) ? Number(dailyLoss.maxLossCents) : base.dailyLoss.maxLossCents },
@@ -160,6 +166,8 @@ export function AccountSimulatorScreen({ initial }: { initial: AccountSimulatorD
   const sourceTrades = granularity === 'trade'
     ? tradeFiles.length ? mapped.trades : signalTrades(hsgSignals, rules.referenceRiskCents, dateOrder, rules.timezone)
     : granularity === 'monthly' ? gridTrades(gridRows) : []
+  const includedSourceTrades = sourceTrades.filter((trade) => trade.riskCategory === null || rules.includedCategories[trade.riskCategory])
+  const excludedCategoryTrades = sourceTrades.length - includedSourceTrades.length
   const effectiveRules = granularity === 'monthly' ? {
     ...rules,
     riskByCategory: { DIRECT: { ...rules.riskByCategory.DIRECT, enabled: false }, ABSORPTION: { ...rules.riskByCategory.ABSORPTION, enabled: false }, CONVENTIONAL: { ...rules.riskByCategory.CONVENTIONAL, enabled: false } },
@@ -167,13 +175,13 @@ export function AccountSimulatorScreen({ initial }: { initial: AccountSimulatorD
     dailyLoss: { ...rules.dailyLoss, enabled: false }, dailyStops: { ...rules.dailyStops, enabled: false },
     tomahawk: { ...rules.tomahawk, enabled: false },
   } : rules
-  const rawSimulation = useMemo(() => calculateSimulation(sourceTrades, effectiveRules), [sourceTrades, effectiveRules])
+  const rawSimulation = useMemo(() => calculateSimulation(includedSourceTrades, effectiveRules), [includedSourceTrades, effectiveRules])
   const sourceWarnings = [...mapped.warnings]
   if (tradeFiles.length && hsgFiles.length) sourceWarnings.push('Trades HSG e trades individuais foram selecionados; apenas os trades individuais entram na curva para evitar somar fontes possivelmente sobrepostas.')
   if (tradeFiles.length && gridFiles.length) sourceWarnings.push('Os resumos Grid selecionados ficam como referência. A curva usa trades individuais e não soma os dois formatos.')
   if (hsgFiles.length && !convertHsg && !tradeFiles.length) sourceWarnings.push('Hunter HSG mede resultado em R. Ative a conversão usando o risco de referência para simulá-lo em dólares.')
   const metrics = granularity === 'monthly' ? aggregateGridMetrics(gridRows, rawSimulation.metrics, effectiveRules) : rawSimulation.metrics
-  const monthlyRows = granularity === 'monthly' ? summarizeGrid(gridRows) : summarizeMonths(sourceTrades, rules.timezone)
+  const monthlyRows = granularity === 'monthly' ? summarizeGrid(gridRows) : summarizeMonths(includedSourceTrades, rules.timezone)
   const sourceDescription = granularity === 'monthly' ? 'Este resultado vem de CSVs mensais.' : granularity === 'trade' && tradeFiles.length ? 'Curva reconstruída com operações individuais.' : granularity === 'trade' ? 'R convertido para dólares pelo risco de referência configurado.' : 'Nenhuma fonte carregada.'
   const missingFileCount = selectedFileIds.filter((id) => !files.some((file) => file.id === id)).length
   const canUseTradeRules = granularity === 'trade' && sourceTrades.length > 0 && (!hsgFiles.length || convertHsg)
@@ -318,7 +326,7 @@ export function AccountSimulatorScreen({ initial }: { initial: AccountSimulatorD
           <SimulatorFilePicker files={files} selectedFileIds={selectedFileIds} onFilesChange={setFiles} onSelectionChange={setSelectedFileIds} onAnalysis={updateAnalysis} />
           {hsgFiles.length > 0 && !tradeFiles.length && <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-blue-300/15 bg-blue-300/[0.03] p-3 text-[10px] leading-5 text-zinc-300"><input type="checkbox" className="mt-1 accent-[#b9f227]" checked={convertHsg} onChange={(event) => setConvertHsg(event.target.checked)} /><span><strong>Converter Result_R do HSG em dólares usando o risco de referência.</strong> Desmarcado por padrão. HSG não informa P&amp;L em USD; esta conversão depende do risco configurado e serve apenas à simulação.</span></label>}
           {selectedFileIds.length > 0 && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-[#111416] px-4 py-3"><div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs"><span className="font-medium text-zinc-200">{selectedAnalyses.length} arquivo(s) na base</span><span className="text-zinc-400">{sourceTrades.length.toLocaleString('pt-BR')} {granularity === 'monthly' ? 'período(s)' : 'operações'} reconhecidas</span>{missingFileCount > 0 && <span className="text-amber-200">{missingFileCount} fonte(s) indisponível(is)</span>}</div><button type="button" onClick={() => setActiveTab('settings')} className="text-xs font-medium text-[#c7f36a] transition hover:text-white">Revisar leitura dos arquivos</button></div>}
-          <SimulatorResults simulation={simulation} metrics={metrics} granularity={granularity} sourceDescription={sourceDescription} sourceTrades={sourceTrades} startBalanceCents={rules.profile.startBalanceCents} targetCents={rules.profile.targetCents} accountLabel={`${rules.profile.id} · ${rules.mode === 'evaluation' ? 'Avaliação' : 'Conta PA'}`} />
+          <SimulatorResults simulation={simulation} metrics={metrics} granularity={granularity} sourceDescription={sourceDescription} sourceTrades={includedSourceTrades} startBalanceCents={rules.profile.startBalanceCents} targetCents={rules.profile.targetCents} accountLabel={`${rules.profile.id} · ${rules.mode === 'evaluation' ? 'Avaliação' : 'Conta PA'}`} />
         </>}
         {activeTab === 'months' && <div className="space-y-3"><SimulatorMonths rows={monthlyRows} granularity={granularity} /><SimulatorFilePicker files={files} selectedFileIds={selectedFileIds} onFilesChange={setFiles} onSelectionChange={setSelectedFileIds} onAnalysis={updateAnalysis} /></div>}
         {activeTab === 'settings' && <div className="space-y-3"><section className="rounded-xl border border-white/[0.07] bg-[#111315] p-4"><h2 className="text-sm font-semibold text-zinc-100">Dados e leitura dos arquivos</h2><p className="mt-1 text-[10px] leading-5 text-zinc-500">A leitura do NinjaTrader Grid é detectada automaticamente. Revise abaixo uma vez por formato de colunas; arquivos com a mesma estrutura compartilham o mapeamento.</p><div className="mt-3 grid gap-2 text-[10px] sm:grid-cols-2"><p className="rounded-lg border border-white/[0.06] p-3 text-zinc-400">Fonte ativa <strong className="mt-1 block text-zinc-200">{sourceDescription}</strong></p><p className="rounded-lg border border-white/[0.06] p-3 text-zinc-400">Operações lidas <strong className="mt-1 block text-zinc-200">{sourceTrades.length.toLocaleString('pt-BR')}</strong></p><p className="rounded-lg border border-white/[0.06] p-3 text-zinc-400">Arquivos selecionados <strong className="mt-1 block text-zinc-200">{selectedAnalyses.length}</strong></p><p className="rounded-lg border border-white/[0.06] p-3 text-zinc-400">Formato do cálculo <strong className="mt-1 block text-zinc-200">{granularity === 'monthly' ? 'Resumo mensal · sequência intramês indisponível' : granularity === 'trade' ? 'Operação por operação' : 'Aguardando CSV'}</strong></p></div></section>
@@ -338,7 +346,7 @@ export function AccountSimulatorScreen({ initial }: { initial: AccountSimulatorD
       </section>
 
       <aside aria-label="Configurações de gerenciamento" className="min-w-0 2xl:sticky 2xl:top-24 2xl:max-h-[calc(100vh-7rem)] 2xl:overflow-y-auto 2xl:pr-1">
-        <SimulatorRulesEditor rules={rules} onChange={setRules} dateOrder={dateOrder} onDateOrderChange={setDateOrder} canUseTradeRules={canUseTradeRules} />
+        <SimulatorRulesEditor rules={rules} onChange={setRules} dateOrder={dateOrder} onDateOrderChange={setDateOrder} canUseTradeRules={canUseTradeRules} excludedCategoryTrades={excludedCategoryTrades} />
       </aside>
     </div>
   </PageFrame>

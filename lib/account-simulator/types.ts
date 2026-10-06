@@ -30,6 +30,7 @@ export type SimulatorRules = {
   mode: SimulationMode
   timezone: string
   referenceRiskCents: number
+  includedCategories: Record<RiskCategory, boolean>
   riskByCategory: Record<RiskCategory, { enabled: boolean; riskCents: number }>
   entryMarket: { enabled: boolean; allowBuy: boolean; allowSell: boolean }
   dailyLoss: { enabled: boolean; maxLossCents: number }
@@ -100,6 +101,7 @@ export function defaultSimulatorRules(id: AccountProfileId = '50K'): SimulatorRu
     mode: 'evaluation',
     timezone: 'America/New_York',
     referenceRiskCents: 50_000,
+    includedCategories: { DIRECT: true, ABSORPTION: true, CONVENTIONAL: true },
     riskByCategory: { DIRECT: blankRisk(), ABSORPTION: blankRisk(), CONVENTIONAL: blankRisk() },
     entryMarket: { enabled: false, allowBuy: true, allowSell: true },
     dailyLoss: { enabled: false, maxLossCents: 100_000 },
