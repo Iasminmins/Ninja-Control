@@ -2,7 +2,7 @@
 
 import { useRef, useState, type ChangeEvent } from 'react'
 import { upload } from '@vercel/blob/client'
-import { AlertTriangle, FileSpreadsheet, FolderOpen, Trash2, Upload } from 'lucide-react'
+import { AlertTriangle, CheckCheck, FileSpreadsheet, FolderOpen, Trash2, Upload } from 'lucide-react'
 import { parseNinjaTraderGridTradesCsv } from '@/lib/account-simulator/ninjatrader-grid-csv'
 import type { TradeCsvAnalysis } from '@/lib/account-simulator/trade-csv'
 
@@ -49,6 +49,47 @@ export function SimulatorFilePicker({ files, selectedFileIds, onFilesChange, onS
     } catch (cause) {
       setError(`${file.fileName}: ${cause instanceof Error ? cause.message : 'não foi possível ler o arquivo.'}`)
       setMessage('')
+    } finally { setBusyId('') }
+  }
+
+  async function toggleAllFiles() {
+    const selectable = files.filter((file) => file.format === 'trades')
+    const incompatibleCount = files.length - selectable.length
+    const selectableIds = new Set(selectable.map((file) => file.id))
+    const allSelected = selectable.length > 0 && selectable.every((file) => selectedFileIds.includes(file.id))
+    if (allSelected) {
+      onSelectionChange(selectedFileIds.filter((id) => !selectableIds.has(id)))
+      setError('')
+      setMessage('Todos os arquivos compatíveis foram desmarcados.')
+      return
+    }
+
+    const pending = selectable.filter((file) => !selectedFileIds.includes(file.id))
+    const nextSelected = [...selectedFileIds]
+    const failures: string[] = []
+    setBusyId('select-all')
+    setError('')
+    setMessage(`Preparando ${selectable.length} CSV(s) para simulação…`)
+    try {
+      for (const [index, file] of pending.entries()) {
+        setMessage(`Lendo ${index + 1}/${pending.length} · ${file.fileName}`)
+        try {
+          const response = await fetch(`/api/experiment-csv-files/${file.id}`, { cache: 'no-store' })
+          if (!response.ok) throw new Error((await response.json().catch(() => ({})) as { error?: string }).error ?? 'Não foi possível abrir o CSV.')
+          const analysis = parseNinjaTraderGridTradesCsv(file.fileName, await response.text())
+          onAnalysis(file.id, analysis)
+          nextSelected.push(file.id)
+        } catch (cause) {
+          failures.push(`${file.fileName}: ${cause instanceof Error ? cause.message : 'não foi possível ler o arquivo.'}`)
+        }
+      }
+      onSelectionChange([...new Set(nextSelected)])
+      if (failures.length) {
+        setError(`${nextSelected.length - selectedFileIds.length} arquivo(s) carregado(s). Falhas: ${failures.slice(0, 3).join(' · ')}${failures.length > 3 ? ` · mais ${failures.length - 3} arquivo(s)` : ''}`)
+        setMessage('')
+      } else {
+        setMessage(`${selectable.length} CSV(s) selecionado(s) e lido(s) para simulação.${incompatibleCount ? ` ${incompatibleCount} arquivo(s) incompatível(is) ignorado(s).` : ''}`)
+      }
     } finally { setBusyId('') }
   }
 
@@ -129,7 +170,7 @@ export function SimulatorFilePicker({ files, selectedFileIds, onFilesChange, onS
   }
 
   return <section className="rounded-xl border border-white/[0.07] bg-[#111315] p-4 sm:p-5">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-sm font-semibold text-zinc-100">Arquivos para simular</h2><p className="mt-1 text-[10px] leading-5 text-zinc-500">Aceita CSVs de trades individuais do NinjaTrader Grid. Selecione até 100 arquivos; cada um pode ter até 25 MB.</p></div><div><input ref={input} type="file" accept=".csv,text/csv" multiple onChange={(event) => void addFiles(event)} className="sr-only" /><button type="button" disabled={Boolean(busyId)} onClick={() => input.current?.click()} className="primary-button min-h-9 px-3 text-[10px] disabled:opacity-50"><Upload className="size-3.5" />Enviar CSVs</button></div></div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-sm font-semibold text-zinc-100">Arquivos para simular</h2><p className="mt-1 text-[10px] leading-5 text-zinc-500">Aceita CSVs de trades individuais do NinjaTrader Grid. Selecione até 100 arquivos; cada um pode ter até 25 MB.</p></div><div className="flex flex-wrap gap-2"><button type="button" disabled={Boolean(busyId) || !files.some((file) => file.format === 'trades')} onClick={() => void toggleAllFiles()} aria-pressed={files.filter((file) => file.format === 'trades').length > 0 && files.filter((file) => file.format === 'trades').every((file) => selectedFileIds.includes(file.id))} className="secondary-button min-h-9 px-3 text-[10px] disabled:opacity-50"><CheckCheck className="size-3.5" />{busyId === 'select-all' ? 'Lendo arquivos…' : files.filter((file) => file.format === 'trades').length > 0 && files.filter((file) => file.format === 'trades').every((file) => selectedFileIds.includes(file.id)) ? 'Desmarcar todos' : 'Selecionar tudo'}</button><input ref={input} type="file" accept=".csv,text/csv" multiple onChange={(event) => void addFiles(event)} className="sr-only" /><button type="button" disabled={Boolean(busyId)} onClick={() => input.current?.click()} className="primary-button min-h-9 px-3 text-[10px] disabled:opacity-50"><Upload className="size-3.5" />Enviar CSVs</button></div></div>
     {(error || message) && <p role={error ? 'alert' : 'status'} className={`mt-3 rounded-lg border p-3 text-[10px] leading-5 ${error ? 'border-rose-300/20 bg-rose-300/[0.04] text-rose-200' : 'border-white/[0.06] bg-white/[0.02] text-zinc-400'}`}>{error || message}</p>}
     {files.length ? <div className="mt-4 space-y-2">{files.map((file) => {
       const selected = selectedFileIds.includes(file.id)
